@@ -1,6 +1,6 @@
 # ADR-0012 用 GitHub Actions 在 Linux 上做完整验证
 
-- 状态：配置写好，**尚未推送、尚未运行**（2026-10-31）
+- 状态：已推送到 github.com/EriDeLee/HuacanCUP（2026-10-31）；第一次运行发现 1 个真问题，已修，见「运行记录」
 - 影响：ADR-0001 第 1 条（Linux 上的验证交给 GitHub Actions）；PLAN §16；AGENTS.md「测试」
 
 ## 做什么
@@ -50,6 +50,25 @@ Linux 分支的沙箱（透传 `DISPLAY`、仍然丢掉令牌和密钥）有单�
 全部提交的作者邮箱都是 GitHub 的 no-reply 地址；仓库内容和历史里没有令牌、密钥、私钥的特征串
 （唯一命中的是测试里用来验证「密钥不会泄漏」的假字符串）。文档里原来有一些本机路径会暴露 Windows 用户名；推送前已全部换成 `<用户目录>`、`<用户名>`
 （旧提交里仍有原文，用户知情并接受，没有改写历史）。
+
+## 运行记录
+
+| 运行 | 提交 | 结果 |
+|---|---|---|
+| 41207656553 | a14e953 | 失败，共 4 分 35 秒。释放磁盘 1 分 53 秒，装 KiCad 1 分 9 秒，fastroute 1 秒，KRT 21 秒，Python 依赖 59 秒，lint 通过；单元测试 45 过、1 失败 |
+
+第一次运行已经证实：装 KiCad 不会超出磁盘；`/usr/bin/python3` 能 `import pcbnew`；`libngspice.so.0` 和
+`/usr/share/kicad` 都在（这些命令写在安装步骤里，步骤通过就说明它们都成功了）。第 2–5 项要等工具测试和冒烟跑到才知道。
+
+失败原因（真问题，本机 Windows 上测不出来）：`config.py` 把相对路径变成绝对路径时用了 `Path.resolve()`，
+它会跟着符号链接走。Linux 上 venv 里的 `bin/python` 是指向系统 Python 的符号链接，于是 `krt_python`
+变成了 `/opt/hostedtoolcache/Python/3.14.9/x64/bin/python3.14`——一个没有装 numpy、scipy 的解释器。
+新加的测试 `test_linux_config_loads_and_points_at_the_ci_install_locations` 抓到了它。
+改法：用 `os.path.abspath`（只规范化路径，不跟符号链接），并加测试「相对路径不跟符号链接」
+（在 Linux 上真正执行；Windows 没开开发者模式建不了符号链接，会跳过）。
+Windows 不受影响：那里 venv 的 `python.exe` 不是符号链接。
+
+运行页面用 Chrome DevTools 协议（CDP）在用户的浏览器里读：公开仓库的 Actions 日志要登录才能看，用户的浏览器已登录。
 
 ## 后续
 

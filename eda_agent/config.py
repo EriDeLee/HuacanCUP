@@ -50,8 +50,10 @@ def default_config_path() -> Path:
     return local if local.exists() else REPO_ROOT / "config.example.yaml"
 
 
-def _absolute(path: Path) -> Path:
-    return path if path.is_absolute() else (REPO_ROOT / path).resolve()
+def _absolute(path: Path, root: Path = REPO_ROOT) -> Path:
+    # 不能用 resolve()：Linux 上 venv 里的 bin/python 是指向系统 Python 的符号链接，
+    # 跟过去就跑到了不带 venv 包的那个解释器（ADR-0012 第一次 CI 运行发现）。
+    return path if path.is_absolute() else Path(os.path.abspath(root / path))
 
 
 def load_config(path: Path | None = None) -> Config:
