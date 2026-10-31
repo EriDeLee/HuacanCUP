@@ -12,18 +12,21 @@
 7. 不使用 OpenClaw；不引入 LangGraph/CrewAI 等编排框架。编排是 `eda_agent/orchestrator/` 中的自写状态机。
 
 ## 工程约定
-- Python 3.11+，依赖用 `uv` 管理；类型注解 + pydantic v2；格式化 `ruff format`，检查 `ruff check`，类型 `mypy`（核心包严格模式）。
-- 外部工具（kicad-cli、ngspice、java/Freerouting）一律经 `eda_agent/tools/` 的封装调用：统一超时、捕获 stdout/stderr、把完整命令行写入 trace。不要在别处直接 `subprocess`。
+- 主程序 Python 3.14（最低 3.12），环境在 `venv\`；依赖只用 pip，直接依赖在 `requirements*.txt` 里写死版本（ADR-0005）；类型注解 + pydantic v2；格式化 `ruff format`，检查 `ruff check`，类型 `mypy`（核心包严格模式）。
+- 需要 `pcbnew` 的代码放 `eda_agent/kicad_side/`，用 KiCad 自带的 Python 单独起进程运行，只依赖标准库和 pcbnew。
+- 外部工具（kicad-cli、KiCad 自带 Python、ngspice、布线器）一律经 `eda_agent/tools/` 的封装调用：统一超时、捕获 stdout/stderr、把完整命令行写入 trace。不要在别处直接 `subprocess`。
+- 外部工具只能写 `.tools/home`（由 `eda_agent/tools/sandbox.py` 设置）和本次运行目录，不得写到项目以外（ADR-0001）。新增工具要先做一次污染检查。
 - 所有 LLM 调用经 `eda_agent/llm/`：结构化输出（JSON Schema 校验失败自动重试 ≤3 次）、记录 token 与费用、可按配置切换供应商。模型名只出现在 `config.yaml`。
 - 智能体只返回结构化结果（多为 JSON Patch），不直接写文件。
 - 每个运行的所有事件追加写入 `runs/<id>/trace.jsonl`，格式见 `schemas/trace.schema.json`。网页回放完全依赖它，字段变更要同步更新回放代码。
 - 密钥只从环境变量读取（`.env` 不入库），提供 `.env.example`。
 
 ## 测试
-- `make test`：单元测试不调用真实 LLM（用录制的响应 fixture）；需要 KiCad/ngspice 的测试打 `@pytest.mark.tools` 标记，在 Docker 内运行。
+- 命令统一是激活 venv 后 `python tasks.py <任务>`（ADR-0006）；`python tasks.py lint` 必须通过。
+- `python tasks.py test`：单元测试不调用真实 LLM（用录制的响应 fixture）；需要 KiCad/ngspice 的测试打 `@pytest.mark.tools` 标记，用 `python tasks.py test-tools` 在本机 `.tools/` 工具链或 GitHub Actions 上运行。
 - 每条电气规则必须有至少一个"应报错"和一个"不应报错"的用例。
 - 新增 Gate 或改动判定逻辑，必须附带 `examples/` 中手写电路的回归结果。
-- `make smoke`：手写 LED 电路走完整链路（IR→原理图→ERC→PCB→布线→DRC→Gerber/STEP/渲染）。任何改动后 smoke 必须保持通过。
+- `python tasks.py smoke`：手写 LED 电路走完整链路（IR→原理图→ERC→PCB→布线→DRC→Gerber/STEP/GLB/渲染）。任何改动后 smoke 必须保持通过。
 
 ## 工作方式
 - 按 `docs/PLAN.md` §12 的里程碑顺序推进，先做 M0；M0 的验证结论写进 `docs/decisions/` 并更新 PLAN.md §16 勾选状态。

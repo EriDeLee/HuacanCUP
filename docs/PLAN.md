@@ -50,14 +50,16 @@
 | 存储 | **只用文件**：JSON / JSONL / Markdown / `.npy`。不建数据库服务 | 用户不想碰数据库；可审计、可 git 追踪 |
 | 电路 IR | 自定义 `design.json`（见 §5） | 便于确定性校验、diff、补丁；与具体 EDA 解耦 |
 | 原理图生成 | **SKiDL** `generate_schematic()`（支持 KiCad 6–10，自带布局布线；层次化子电路→多页） | 已核实 |
-| PCB 生成 | **kinet2pcb**（网表→`.kicad_pcb`，需 KiCad 自带 `pcbnew` Python 模块） | 已核实 |
-| 布线 | **Freerouting** CLI（`-de x.dsn -do x.ses`，Java，支持无界面） | 已核实；DSN 导出/SES 导入方式见 §12 M0 待验证项 |
-| ERC/DRC/导出 | **kicad-cli**（KiCad 9/10）：`sch erc --format json --exit-code-violations`、`pcb drc --format json --schematic-parity`、`pcb export gerbers/step`、`pcb render` | 已核实 |
-| 仿真 | **ngspice**（经 PySpice 或直接子进程），`.meas` 测量 | 开源、可在服务器跑 |
+| PCB 生成 | **自写 `eda_agent/kicad_side/board_build.py`**（kicad-cli 导出的网表→`.kicad_pcb`，在 KiCad 自带 Python 里调 `pcbnew`）；kinet2pcb 在 Windows 上不可用 | ADR-0007 |
+| 布线 | **Freerouting 2.5.0（Java 版）与 KiCadRoutingTools v0.23.7**，M0 实测后二选一；DSN 导出 / SES 导回走 `pcbnew.ExportSpecctraDSN` / `ImportSpecctraSES` | ADR-0004 |
+| ERC/DRC/导出 | **kicad-cli**（KiCad 10.0.8，解压版）：`sch erc --format json --exit-code-violations`、`pcb drc --format json --schematic-parity`、`pcb export gerbers/drill/pos/step/glb`、`pcb render` | ADR-0002 |
+| 仿真 | **KiCad 自带的 ngspice-46**（`ngspice.dll`），自写 ctypes 对接、子进程隔离，`.meas` 测量 | ADR-0003 |
 | 元器件目录 | JLCPCB/LCSC 公开目录：`cdfer/jlcpcb-parts-database` 的基础/优选件 CSV（约 3MB）为默认；可选下载其在库件 SQLite 文件（约 1GB）**作为只读数据文件**查询 | 无需凭证 |
 | 聊天入口 | **飞书**（`lark-oapi`，长连接 WebSocket，卡片按钮回调做审批）；Discord 作为第二入口（可选） | 已核实：长连接仅企业自建应用；回调需 3 秒内响应 |
 | 网页 | FastAPI 后端 + 单页前端（运行时间线、产物下载、原理图 SVG、3D 预览） | 比赛要求"供评审交互体验的网址" |
-| 部署 | Docker 镜像（KiCad + ngspice + Java + Freerouting + Python）；部署到协创者号提供的云服务器或自有 VPS | 可复现 |
+| 开发环境 | 本机 Windows 原生运行，工具只解压不安装，放在项目内 `.tools/`，外部工具的设置、缓存、临时文件都指到 `.tools/home`；Linux 验证用 GitHub Actions | ADR-0001 |
+| 依赖与任务 | 只用 pip（直接依赖写死版本）；主程序 Python 3.14，用到 pcbnew 的步骤用 KiCad 自带 Python 3.11；`python tasks.py <任务>` 代替 make | ADR-0005、ADR-0006 |
+| 部署 | M6 再装箱：Docker 镜像（KiCad + 布线器 + Python）；部署到协创者号提供的云服务器或自有 VPS | 可复现 |
 
 ---
 
@@ -185,6 +187,7 @@ S11 bringup      （板子回来后）生成上电步骤 + 每步期望读数（
 }
 ```
 - 智能体只能提交 **RFC 6902 JSON Patch**；编排器应用补丁 → pydantic 校验 → 失败则把错误原样返回给该智能体重试（最多 3 次）。
+- `nets[].external_supply`（默认 false）：这个网络的电由板外经连接器送进来；原理图只在这类网络上放 PWR_FLAG（ADR-0008）。
 - `ratings` 字段来自数据手册检索结果，并记录出处（`ratings_source: {doc_id, page}`），供规则检查使用。
 
 ### 5.3 `GateReport`
@@ -317,14 +320,14 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 
 | # | 周 | 内容 | 完成标准 |
 |---|---|---|---|
-| M0 | 11/02–11/08 | **工具链冒烟（Docker）**：KiCad 9/10、ngspice、Java + Freerouting、SKiDL、kinet2pcb、PySpice、lark-oapi 在同一镜像跑通；手写一个 LED+电阻电路走完：IR→原理图→ERC→PCB→DSN→布线→SES 回导→DRC→Gerber/STEP/render | `make smoke` 全绿。**必须验证并记录**：① 无界面下 DSN 导出与 SES 导入的方法（pcbnew Python API 的 Specctra 导出/导入函数在所选 KiCad 版本是否可用）；② `kicad-cli` 是否支持导出 GLB；③ SKiDL `generate_schematic` 对 30+ 器件电路的可读性；④ 选定 embedding 模型 |
+| M0 | 11/02–11/08 | **工具链冒烟（本机 `.tools/` + GitHub Actions，ADR-0001）**：KiCad 10.0.8（自带 ngspice）、Freerouting / KiCadRoutingTools、SKiDL、lark-oapi 跑通；手写一个 LED+电阻电路走完：IR→原理图→ERC→PCB→布线（DSN→SES 回导，或直接读写 .kicad_pcb）→DRC→Gerber/STEP/GLB/render | `python tasks.py smoke` 全绿。**必须验证并记录**：① 无界面下 DSN 导出与 SES 导入的方法（pcbnew Python API 的 Specctra 导出/导入函数在所选 KiCad 版本是否可用）；② `kicad-cli` 是否支持导出 GLB；③ SKiDL `generate_schematic` 对 30+ 器件电路的可读性；④ 选定 embedding 模型 |
 | M1 | 11/09–11/22 | IR（pydantic + JSON Schema）、JSON Patch 应用器、IR→SKiDL→KiCad 发射器、运行目录与 trace | 10 个手写 IR 样例全部生成可打开的工程 |
 | M2 | 11/23–12/06 | G1/G2/G3 全部 Gate；测试台生成器；收敛重试 | 每条规则有正反单测；5 个手写电路的仿真判定与手算一致 |
 | M3 | 12/07–12/27 | LLM 抽象、各智能体、编排状态机、回退与预算、断点续跑；CLI：`eda-agent run "需求"` | 3 个演示需求在 CLI 端到端跑出交付物（允许人工节点用命令行确认） |
 | M4 | 12/28–01/10 | 目录/库存/采购；数据手册下载+解析+本地向量检索 | 选型结果都带出处页码；缺件生成采购申请 |
 | M5 | 01/11–01/24 | 飞书机器人（卡片审批全流程）、记忆读写；Discord（可选） | 在飞书里从许愿到收到交付卡 |
 | M6 | 01/25–02/07 | 网页（实时+回放）、部署到云服务器、限流 | 评委可在网页回放 3 个案例、可实时跑 1 个小案例 |
-| M7 | 02/08–02/21 | 评测：自建对照集 + 基线对比 + 报告；bring-up 流程（S11） | `make eval` 一键重跑出表格与图 |
+| M7 | 02/08–02/21 | 评测：自建对照集 + 基线对比 + 报告；bring-up 流程（S11） | `python tasks.py eval` 一键重跑出表格与图 |
 | M8 | 02/22–03/04 | 海报、演示视频、提交材料、修 bug；03/05 前一天提交 | 提交完成 |
 
 进度落后时的处理顺序（实现先后，不是砍产品范围）：先保证 S0–S10 主链路在 CLI 与网页可跑；飞书卡片的编辑能力、Discord、bring-up、实物测量仪器接入依次后移。
@@ -351,9 +354,11 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 ├── AGENTS.md                 给编码智能体的工作规则（CLAUDE.md 软链接到它）
 ├── docs/PLAN.md              本文件
 ├── docs/decisions/           每个重要技术决定一页（ADR）
-├── pyproject.toml            uv 管理依赖
-├── Dockerfile / docker-compose.yml
-├── Makefile                  smoke / test / eval / demo / serve
+├── pyproject.toml            ruff / mypy / pytest 配置
+├── requirements*.txt         pip 直接依赖，版本写死（ADR-0005）
+├── tasks.py                  lint / test / test-tools / smoke（代替 Makefile，ADR-0006）
+├── Dockerfile / docker-compose.yml   M6 部署时再加（ADR-0001）
+├── .tools/                   本地解压的外部工具与沙箱目录（git 忽略，ADR-0001）
 ├── config.example.yaml       模型档位映射、费用上限、回退上限、路径
 ├── schemas/                  spec / design / gate_report / trace 的 JSON Schema
 ├── prompts/                  每个角色一个 .md
@@ -363,8 +368,9 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 │   ├── llm/                  provider 抽象、重试、结构化输出、计费
 │   ├── ir/                   pydantic 模型、patch 应用、校验
 │   ├── emit/                 IR→SKiDL→kicad_sch / netlist / kicad_pcb；IR→SPICE
+│   ├── kicad_side/           在 KiCad 自带 Python 里运行、调用 pcbnew 的脚本（建板、Specctra 导出导回）
 │   ├── gates/                static(rules/), sim, drc
-│   ├── tools/                kicad_cli, freerouting, ngspice, render, export
+│   ├── tools/                kicad_cli, 布线器, ngspice, sandbox（外部工具环境）, runner（统一超时与 trace）
 │   ├── parts/                catalog, inventory, procurement
 │   ├── retrieval/            datasheet 下载/解析、embed client、numpy 检索
 │   ├── memory/               profile / history / design memory 读写
@@ -399,10 +405,12 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 
 ## 16. 待验证清单（实现前/中逐项勾掉）
 
-- [ ] 所选 KiCad 版本下，无界面 DSN 导出 / SES 导入的可用方法
-- [ ] `kicad-cli` 是否可导出 GLB（否则 STEP→GLB 转换方案）
+- [x] 所选 KiCad 版本下，无界面 DSN 导出 / SES 导入的可用方法 —— KiCad 10.0.8 用 `pcbnew.ExportSpecctraDSN` / `ImportSpecctraSES`，LED 板实测导回后 DRC 0 错误（ADR-0004）
+- [x] `kicad-cli` 是否可导出 GLB（否则 STEP→GLB 转换方案）—— `pcb export glb` 可用，冒烟已生成 board.glb（ADR-0002）
 - [ ] SKiDL `generate_schematic` 在 KiCad 9/10 下对中等规模电路的效果
-- [ ] kinet2pcb 与所选 KiCad 版本的 `pcbnew` 模块兼容性（Docker 内用 KiCad 自带 Python）
+- [x] kinet2pcb 与所选 KiCad 版本的 `pcbnew` 模块兼容性 —— Windows 上 import 即报错，改用自写建板脚本（ADR-0007）
+- [ ] 两个布线器在 30 个以上元件的板子上的对比（ADR-0004）
+- [ ] embedding 模型与接口格式（用户的云 GPU 只暴露一个 API 端口）
 - [ ] 协创者号平台项目展示网站的提交格式（仓库 + Demo URL 的具体要求）
 - [ ] HWE-Bench 作者回复
 - [ ] 飞书自建应用创建与卡片回调权限
