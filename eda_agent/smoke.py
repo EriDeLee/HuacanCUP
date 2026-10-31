@@ -3,11 +3,11 @@
 IR → 原理图（SKiDL）→ ERC → 网表 → PCB → 布线 → DRC（含原理图一致性）
 → Gerber、钻孔、坐标、STEP、GLB、渲染图、原理图 SVG。
 
-两个候选布线器都跑（ADR-0004 的实测数据），制造文件用主布线器的结果；
+主布线器 fastroute 和备用布线器 KiCadRoutingTools 都跑（ADR-0004），制造文件用主布线器的结果；
 主布线器的 DRC 不通过，冒烟就算失败。
 
     python tasks.py smoke
-    python -m eda_agent.smoke --design examples/led/design.json --primary freerouting
+    python -m eda_agent.smoke --design examples/led/design.json --primary krt
 """
 
 from __future__ import annotations
@@ -31,12 +31,12 @@ from eda_agent.gates.schematic_layout import layout_gate
 from eda_agent.ir.models import load_design
 from eda_agent.tools.kicad_cli import KicadCli
 from eda_agent.tools.kicad_python import run_kicad_script
-from eda_agent.tools.routers import freerouting_route, krt_route
+from eda_agent.tools.routers import fastroute_route, krt_route
 from eda_agent.tools.runner import ToolResult, run_tool
 from eda_agent.tools.sandbox import sandbox_env
 from eda_agent.trace import TraceWriter
 
-ROUTERS = ("freerouting", "krt")
+ROUTERS = ("fastroute", "krt")
 PROJECT_SUFFIXES = (".kicad_pro", ".kicad_sch", ".kicad_pcb")
 
 
@@ -152,12 +152,12 @@ class Smoke:
         with self.step(f"route-{router}") as detail:
             target = self._copy_project(pcb, router)
             start = time.monotonic()
-            if router == "freerouting":
+            if router == "fastroute":
                 dsn, ses = target.with_suffix(".dsn"), target.with_suffix(".ses")
                 self._kicad_script(
                     "specctra.py", ["export", "--pcb", target, "--dsn", dsn], target.parent
                 )
-                freerouting_route(self.tools, dsn, ses, log_dir=self.logs, trace=self.trace)
+                fastroute_route(self.tools, dsn, ses, log_dir=self.logs, trace=self.trace)
                 self._kicad_script(
                     "specctra.py", ["import", "--pcb", target, "--ses", ses], target.parent
                 )
@@ -263,7 +263,7 @@ def main(argv: list[str]) -> int:
         "--design", type=Path, default=REPO_ROOT / "examples" / "led" / "design.json"
     )
     parser.add_argument("--runs", type=Path, default=REPO_ROOT / "runs")
-    parser.add_argument("--primary", choices=ROUTERS, default="freerouting")
+    parser.add_argument("--primary", choices=ROUTERS, default="fastroute")
     parser.add_argument("--routers", nargs="+", choices=ROUTERS, default=list(ROUTERS))
     args = parser.parse_args(argv)
     routers = tuple(dict.fromkeys([args.primary, *args.routers]))

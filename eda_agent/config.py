@@ -30,13 +30,9 @@ class ToolsConfig(BaseModel):
     kicad_python: Path
     kicad_share: Path
     ngspice_lib: Path
-    freerouting_java: Path
-    freerouting_jar: Path
+    fastroute: Path
     krt_python: Path
     krt_route: Path
-    # M0 对比用的候选布线器（ADR-0004），没装就留空。
-    fastroute: Path | None = None
-    kct: Path | None = None
     timeouts: Timeouts = Timeouts()
 
 

@@ -1,9 +1,10 @@
 """布线器对比（ADR-0004）：在 KiCad 自带的示例板上，删掉全部走线、过孔、铺铜，元件位置不动，
 让每个候选布线器各布一次，再用 KiCad DRC（含原理图一致性）打分。原板的 DRC 结果作为参照。
 
-    python eval/router_bakeoff.py --routers freerouting,krt,fastroute,kct ecc83/ecc83-pp ...
+    python eval/router_bakeoff.py --routers fastroute,krt ecc83/ecc83-pp ...
 
 位置参数是「示例目录/板名」（不带扩展名）。示例工程只复制到 runs/ 下使用，不进 git。
+Freerouting 和 kicad-tools 已从项目里去掉（ADR-0004），它们的成绩是用提交 aeee649 里的这个脚本测的。
 """
 
 from __future__ import annotations
@@ -25,16 +26,11 @@ from eda_agent.config import REPO_ROOT, ToolsConfig, load_config  # noqa: E402
 from eda_agent.gates.kicad_reports import GateReport, drc_gate  # noqa: E402
 from eda_agent.tools.kicad_cli import KicadCli  # noqa: E402
 from eda_agent.tools.kicad_python import run_kicad_script  # noqa: E402
-from eda_agent.tools.routers import (  # noqa: E402
-    fastroute_route,
-    freerouting_route,
-    kct_route,
-    krt_route,
-)
+from eda_agent.tools.routers import fastroute_route, krt_route  # noqa: E402
 from eda_agent.trace import TraceWriter  # noqa: E402
 
-ROUTERS = ("freerouting", "krt", "fastroute", "kct")
-DSN_ROUTERS = {"freerouting": freerouting_route, "fastroute": fastroute_route}
+ROUTERS = ("fastroute", "krt")
+DSN_ROUTERS = {"fastroute": fastroute_route}
 _COPPER_TEXT = re.compile(r'\(gr_text\s+"[^"]*"\s+\(at[^)]*\)\s+\(layer\s+"(?:F|B|In\d+)\.Cu"')
 
 
@@ -71,11 +67,8 @@ def route_one(
             run_kicad_script(tools, "specctra.py", args, cwd=work, log_dir=logs, trace=trace)
         else:
             routed = pcb.with_name(f"{pcb.stem}_routed.kicad_pcb")
-            if router == "krt":
-                summary = work / "krt_summary.json"
-                krt_route(tools, pcb, routed, summary_json=summary, log_dir=logs, trace=trace)
-            else:
-                kct_route(tools, pcb, routed, log_dir=logs, trace=trace)
+            summary = work / "krt_summary.json"
+            krt_route(tools, pcb, routed, summary_json=summary, log_dir=logs, trace=trace)
             routed.replace(pcb)
             routed.with_suffix(".kicad_pro").unlink(missing_ok=True)
         entry["seconds"] = round(time.monotonic() - start, 1)
@@ -91,7 +84,7 @@ def route_one(
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--routers", default="freerouting,krt")
+    parser.add_argument("--routers", default="fastroute,krt")
     parser.add_argument("boards", nargs="+")
     args = parser.parse_args(argv)
     routers = [r for r in args.routers.split(",") if r]

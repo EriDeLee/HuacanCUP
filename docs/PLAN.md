@@ -24,7 +24,7 @@
 |---|---|---|
 | 需求规格（冻结） | `spec.json` + `spec.md` | 需求智能体起草，用户确认后冻结 |
 | 设计源 | `design.json`（本系统 IR） | 各智能体以补丁方式修改 |
-| 可编辑 EDA 工程 | `.kicad_pro` / `.kicad_sch` / `.kicad_pcb` | SKiDL 生成原理图，kinet2pcb 生成 PCB，Freerouting 布线 |
+| 可编辑 EDA 工程 | `.kicad_pro` / `.kicad_sch` / `.kicad_pcb` | 原理图生成方案待用户看过样张后定（SKiDL 不够好，自写版面引擎样张见 ADR-0009、ADR-0011），自写建板脚本生成 PCB，fastroute 布线 |
 | 制造文件 | Gerber + 钻孔 zip、坐标文件 | `kicad-cli pcb export gerbers` / `drill` / `pos` |
 | BOM | `bom.csv`（含库存/采购来源、LCSC 编号、单价） | 确定性脚本 |
 | 采购申请 | `purchase_request.json` + 可上传的购物车 CSV | 采购智能体起草，用户在飞书/网页审批 |
@@ -51,7 +51,7 @@
 | 电路 IR | 自定义 `design.json`（见 §5） | 便于确定性校验、diff、补丁；与具体 EDA 解耦 |
 | 原理图生成 | **SKiDL** `generate_schematic()`（SKiDL 3.0 把布局布线交给 schematizer；层次化子电路→多页） | ADR-0009：大电路要开 `auto_stub`，不连线的元件会让它崩溃 |
 | PCB 生成 | **自写 `eda_agent/kicad_side/board_build.py`**（kicad-cli 导出的网表→`.kicad_pcb`，在 KiCad 自带 Python 里调 `pcbnew`）；kinet2pcb 在 Windows 上不可用 | ADR-0007 |
-| 布线 | **Freerouting 2.5.0（Java 版）与 KiCadRoutingTools v0.23.7**，M0 实测后二选一；DSN 导出 / SES 导回走 `pcbnew.ExportSpecctraDSN` / `ImportSpecctraSES` | ADR-0004 |
+| 布线 | **fastroute 0.1.14 主用，KiCadRoutingTools v0.23.7 备用**（用户 2026-10-31 决定）；fastroute 走 DSN 导出 / SES 导回（`pcbnew.ExportSpecctraDSN` / `ImportSpecctraSES`），KiCadRoutingTools 直接读写 .kicad_pcb | ADR-0004 |
 | ERC/DRC/导出 | **kicad-cli**（KiCad 10.0.8，解压版）：`sch erc --format json --exit-code-violations`、`pcb drc --format json --schematic-parity`、`pcb export gerbers/drill/pos/step/glb`、`pcb render` | ADR-0002 |
 | 仿真 | **KiCad 自带的 ngspice-46**（`ngspice.dll`），自写 ctypes 对接、子进程隔离，`.meas` 测量 | ADR-0003 |
 | 元器件目录 | JLCPCB/LCSC 公开目录：`cdfer/jlcpcb-parts-database` 的基础/优选件 CSV（约 3MB）为默认；可选下载其在库件 SQLite 文件（约 1GB）**作为只读数据文件**查询 | 无需凭证 |
@@ -105,7 +105,7 @@ G1 static        Gate：IR 结构校验 + 自写电气规则 + KiCad ERC
 S5 testbench     由 spec 的验收标准**确定性生成**仿真测试台（不经模型）
 G2 sim           Gate：ngspice 仿真，逐条验收标准判定
    ↺ 失败 → S6 diagnose（诊断智能体读波形/报告）→ 回到 S3/S4（或 S2，若拓扑本身不行）
-S7 layout        PCB：kinet2pcb 摆放 → 板框/安装孔/连接器位置按 board 约束 → Freerouting
+S7 layout        PCB：自写建板脚本摆放 → 板框/安装孔/连接器位置按 board 约束 → fastroute（失败换 KiCadRoutingTools）
 G3 drc           Gate：kicad-cli DRC（含原理图一致性）
    ↺ 失败 → PCB 智能体调整板尺寸/线宽规则/层数/摆放提示 → 重布
 S8 procure       采购智能体：BOM 对比库存，缺件生成采购申请
@@ -320,7 +320,7 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 
 | # | 周 | 内容 | 完成标准 |
 |---|---|---|---|
-| M0 | 11/02–11/08 | **工具链冒烟（本机 `.tools/` + GitHub Actions，ADR-0001）**：KiCad 10.0.8（自带 ngspice）、Freerouting / KiCadRoutingTools、SKiDL、lark-oapi 跑通；手写一个 LED+电阻电路走完：IR→原理图→ERC→PCB→布线（DSN→SES 回导，或直接读写 .kicad_pcb）→DRC→Gerber/STEP/GLB/render | `python tasks.py smoke` 全绿。**必须验证并记录**：① 无界面下 DSN 导出与 SES 导入的方法（pcbnew Python API 的 Specctra 导出/导入函数在所选 KiCad 版本是否可用）；② `kicad-cli` 是否支持导出 GLB；③ SKiDL `generate_schematic` 对 30+ 器件电路的可读性；④ 选定 embedding 模型（已推迟到 M4，ADR-0010） |
+| M0 | 11/02–11/08 | **工具链冒烟（本机 `.tools/` + GitHub Actions，ADR-0001）**：KiCad 10.0.8（自带 ngspice）、fastroute / KiCadRoutingTools、SKiDL、lark-oapi 跑通；手写一个 LED+电阻电路走完：IR→原理图→ERC→PCB→布线（DSN→SES 回导，或直接读写 .kicad_pcb）→DRC→Gerber/STEP/GLB/render | `python tasks.py smoke` 全绿。**必须验证并记录**：① 无界面下 DSN 导出与 SES 导入的方法（pcbnew Python API 的 Specctra 导出/导入函数在所选 KiCad 版本是否可用）；② `kicad-cli` 是否支持导出 GLB；③ SKiDL `generate_schematic` 对 30+ 器件电路的可读性；④ 选定 embedding 模型（已推迟到 M4，ADR-0010） |
 | M1 | 11/09–11/22 | IR（pydantic + JSON Schema）、JSON Patch 应用器、IR→SKiDL→KiCad 发射器、运行目录与 trace | 10 个手写 IR 样例全部生成可打开的工程 |
 | M2 | 11/23–12/06 | G1/G2/G3 全部 Gate；测试台生成器；收敛重试 | 每条规则有正反单测；5 个手写电路的仿真判定与手算一致 |
 | M3 | 12/07–12/27 | LLM 抽象、各智能体、编排状态机、回退与预算、断点续跑；CLI：`eda-agent run "需求"` | 3 个演示需求在 CLI 端到端跑出交付物（允许人工节点用命令行确认） |
@@ -409,7 +409,7 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 - [x] `kicad-cli` 是否可导出 GLB（否则 STEP→GLB 转换方案）—— `pcb export glb` 可用，冒烟已生成 board.glb（ADR-0002）
 - [x] SKiDL `generate_schematic` 在 KiCad 9/10 下对中等规模电路的效果 —— 替代做法见 ADR-0011（自写版面引擎样张：机器检查全过，导线总长约为原图的 1/8，等用户看图）。SKiDL 本身实测不能直接用：默认模式只适合很小的电路；`auto_stub` 下 50 个元件的单页会把大部分符号甩出图纸；只有 labels 模式能放下 63 个元件；不连线的元件会让它崩溃（ADR-0009）。替代做法待定
 - [x] kinet2pcb 与所选 KiCad 版本的 `pcbnew` 模块兼容性 —— Windows 上 import 即报错，改用自写建板脚本（ADR-0007）
-- [x] 布线器在 30 个以上元件的板子上的对比 —— 5 块 KiCad 示例板 × 4 个布线器（ADR-0004）：规则一致的前三块上 fastroute 与 Freerouting 错误数相当、快 1.2–7.6 倍；kct 的 C++ 版 4 块板超时；两块大板的错误主要是规则没传进布线器，不能排名。选哪个、是否继续找更强的由用户定
+- [x] 布线器在 30 个以上元件的板子上的对比 —— 5 块 KiCad 示例板 × 4 个布线器（ADR-0004）：规则一致的前三块上 fastroute 与 Freerouting 错误数相当、快 1.2–7.6 倍；kct 的 C++ 版 4 块板超时；两块大板的错误主要是规则没传进布线器，不能排名。用户决定：fastroute 主用 + KiCadRoutingTools 备用；是否继续找更强的仍开放
 - [ ] embedding 模型与接口格式（用户的云 GPU 只暴露一个 API 端口）—— 推迟到 M4，用真实数据手册对比后再定（ADR-0010）
 - [ ] 协创者号平台项目展示网站的提交格式（仓库 + Demo URL 的具体要求）
 - [ ] HWE-Bench 作者回复

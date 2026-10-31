@@ -10,14 +10,10 @@ tools:
   kicad_share: .tools/kicad/share/kicad
   # KiCad 自带的 ngspice 共享库（ADR-0003）
   ngspice_lib: .tools/kicad/bin/ngspice.dll
-  # Freerouting Java 版（免 Java 版有崩溃 bug，ADR-0004）
-  freerouting_java: .tools/jre-25/jdk-25.0.5+8-jre/bin/java.exe
-  freerouting_jar: .tools/freerouting/freerouting-2.5.0.jar
+  # 布线器：fastroute 主用，KiCadRoutingTools 备用（ADR-0004）
+  fastroute: .tools/fastroute/fastroute-0.1.14-windows-x64/fastroute.exe
   krt_python: .tools/venv-krt/Scripts/python.exe
   krt_route: .tools/KiCadRoutingTools/py_router/route.py
-  # 下面两个只在布线器对比实验里用（ADR-0004）
-  fastroute: .tools/fastroute/fastroute-0.1.14-windows-x64/fastroute.exe
-  kct: .tools/venv-kct/Scripts/kct.exe
   timeouts:
     default_s: 300
     route_s: 900

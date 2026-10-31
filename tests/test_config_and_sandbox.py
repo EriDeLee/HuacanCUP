@@ -8,7 +8,7 @@ from eda_agent.tools.sandbox import sandbox_env
 
 def test_example_config_paths_are_absolute_and_inside_repo() -> None:
     tools = load_config(REPO_ROOT / "config.example.yaml").tools
-    for path in (tools.sandbox_home, tools.kicad_cli, tools.kicad_python, tools.freerouting_jar):
+    for path in (tools.sandbox_home, tools.kicad_cli, tools.kicad_python, tools.fastroute):
         assert path.is_absolute()
         assert REPO_ROOT in path.parents
 

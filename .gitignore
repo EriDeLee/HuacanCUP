@@ -12,6 +12,7 @@ __pycache__/
 
 # 运行输出与可重建数据（PLAN §14）
 runs/
+compare/
 data/
 
 # 本地配置与密钥
