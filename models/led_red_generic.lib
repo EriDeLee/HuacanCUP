@@ -1,0 +1,4 @@
+* Generic red LED diode model, written for this repository (not a vendor model).
+* Chosen so that Vf = N*Vt*ln(I/IS) + I*RS is about 1.85 V at 10 mA (Vt = 25.85 mV).
+* Use only for smoke tests; real designs must use the vendor model of the chosen part.
+.model LED_RED_GENERIC D(IS=2.9e-18 N=2 RS=2)

@@ -1,0 +1,5 @@
+# Direct dependencies of the main program (Python 3.14, venv). Exact pins, transitive deps unpinned, see ADR-0005.
+skidl==3.0.0
+pydantic==2.14.2
+PyYAML==6.0.3
+lark-oapi==1.7.5

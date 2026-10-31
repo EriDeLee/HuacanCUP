@@ -1,0 +1,19 @@
+# 复制成 config.yaml 再改（config.yaml 不进 git）。相对路径以仓库根目录为准。
+# 这里是本机 Windows 的默认值（ADR-0001）。也可以用环境变量 EDA_AGENT_CONFIG 指定别的配置文件。
+tools:
+  # 外部工具的设置、缓存、临时文件都写到这里，不写到项目以外
+  sandbox_home: .tools/home
+  kicad_cli: .tools/kicad/bin/kicad-cli.exe
+  # KiCad 自带的 Python 3.11，能 import pcbnew；不往里装任何包（ADR-0005、ADR-0007）
+  kicad_python: .tools/kicad/bin/python.exe
+  # KiCad 自带的符号库、封装库、3D 模型、示例工程所在目录
+  kicad_share: .tools/kicad/share/kicad
+  # KiCad 自带的 ngspice 共享库（ADR-0003）
+  ngspice_lib: .tools/kicad/bin/ngspice.dll
+  freerouting: .tools/freerouting/freerouting-cli.exe
+  krt_python: .tools/venv-krt/Scripts/python.exe
+  krt_route: .tools/KiCadRoutingTools/py_router/route.py
+  timeouts:
+    default_s: 300
+    route_s: 900
+    sim_s: 120

@@ -1,0 +1,33 @@
+# 只放工具配置；依赖见 requirements*.txt（ADR-0005：只用 pip）。
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".tools", "venv", "venv-kicad", "runs", "data"]
+
+[tool.ruff.per-file-target-version]
+# 这些脚本跑在 KiCad 自带的 Python 3.11 里（ADR-0005）。
+"eda_agent/kicad_side/*.py" = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+files = ["eda_agent"]
+# kicad_side 跑在 KiCad 自带的 Python 里，依赖没有类型信息的 pcbnew 模块。
+exclude = ["eda_agent/kicad_side/"]
+
+[[tool.mypy.overrides]]
+module = ["skidl", "skidl.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# 测试临时目录放在项目里，不写到系统临时目录（每次运行前 pytest 会清空它）。
+addopts = "-ra --basetemp=.pytest_tmp"
+markers = [
+    "tools: 需要本地 KiCad / ngspice / 布线器工具链（.tools 或 Linux 上的同等安装）",
+]

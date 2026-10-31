@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trace.schema.json",
+  "title": "runs/<id>/trace.jsonl 中的一行事件",
+  "description": "M0 只定义 tool_call 与 step 两类；llm_call / gate / human / cost 在后续里程碑加入。",
+  "type": "object",
+  "required": ["ts", "run_id", "seq", "type"],
+  "properties": {
+    "ts": {"type": "string", "format": "date-time"},
+    "run_id": {"type": "string", "minLength": 1},
+    "seq": {"type": "integer", "minimum": 0},
+    "type": {"enum": ["tool_call", "step"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"type": {"const": "tool_call"}}},
+      "then": {
+        "required": ["tool", "argv", "cwd", "exit_code", "timed_out", "duration_s", "stdout_path", "stderr_path"],
+        "properties": {
+          "tool": {"type": "string"},
+          "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+          "cwd": {"type": "string"},
+          "exit_code": {"type": ["integer", "null"]},
+          "timed_out": {"type": "boolean"},
+          "termination": {"enum": ["none", "graceful", "forced"]},
+          "duration_s": {"type": "number", "minimum": 0},
+          "stdout_path": {"type": ["string", "null"]},
+          "stderr_path": {"type": ["string", "null"]},
+          "stdout_tail": {"type": "string"},
+          "stderr_tail": {"type": "string"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "step"}}},
+      "then": {
+        "required": ["name", "status"],
+        "properties": {
+          "name": {"type": "string"},
+          "status": {"enum": ["start", "ok", "fail"]},
+          "detail": {"type": "object"}
+        }
+      }
+    }
+  ]
+}
