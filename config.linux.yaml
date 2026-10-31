@@ -10,6 +10,8 @@ tools:
   fastroute: .tools/fastroute/fastroute-0.1.14-linux-x64/fastroute
   krt_python: .tools/venv-krt/bin/python
   krt_route: .tools/KiCadRoutingTools/py_router/route.py
+  # 只在布线器对比的工作流 bakeoff.yml 里安装（ADR-0004）
+  tracemaker: .tools/tracemaker/tracemaker-0.12.1-linux-x86_64/bin/tracemaker
   timeouts:
     default_s: 300
     route_s: 900

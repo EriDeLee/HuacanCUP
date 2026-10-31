@@ -33,6 +33,8 @@ class ToolsConfig(BaseModel):
     fastroute: Path
     krt_python: Path
     krt_route: Path
+    # 只在 Linux 的布线器对比里用（ADR-0004），没装就留空。
+    tracemaker: Path | None = None
     timeouts: Timeouts = Timeouts()
 
 

@@ -7,6 +7,11 @@
   那样 DRC 关就被布线器自己降低了门槛。
 
 Freerouting 和 kicad-tools 的实测结果在 ADR-0004；它们的适配代码在 git 提交 aeee649 里。
+
+- TraceMaker 0.12.1：只在布线器对比里用（ADR-0004），只有 Linux 版，在 GitHub Actions 上跑。
+  直接读写 .kicad_pcb。参数按官方 docs/reference/cli.md 核对：--no-gpu 不找显卡（结果相同），
+  --no-kb 不读写它跨运行的「失败记忆」，每次对比都从零开始；
+  时间限制用它的默认值（每个变体 120 秒）。
 """
 
 from __future__ import annotations
@@ -79,3 +84,41 @@ def krt_route(
         trace=trace,
     )
     return result.check()
+
+
+# TraceMaker 的退出码：0 = 计划的连接全部布通；
+# 3 = 有没布通的，但结果照样写出来（由 KiCad DRC 打分）。
+TRACEMAKER_OK_CODES = (0, 3)
+
+
+def tracemaker_route(
+    tools: ToolsConfig,
+    pcb_in: Path,
+    pcb_out: Path,
+    *,
+    summary_json: Path,
+    log_dir: Path,
+    trace: TraceWriter | None = None,
+) -> ToolResult:
+    if tools.tracemaker is None:
+        raise ValueError("配置里没有 tracemaker：它只有 Linux 版，只在布线器对比里用（ADR-0004）")
+    result = run_tool(
+        "tracemaker",
+        [
+            tools.tracemaker,
+            "route",
+            pcb_in,
+            "-o",
+            pcb_out,
+            "--json",
+            summary_json,
+            "--no-gpu",
+            "--no-kb",
+        ],
+        cwd=pcb_in.parent,
+        env=sandbox_env(tools),
+        timeout_s=tools.timeouts.route_s,
+        log_dir=log_dir,
+        trace=trace,
+    )
+    return result.check(ok_codes=TRACEMAKER_OK_CODES)

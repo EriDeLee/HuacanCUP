@@ -82,9 +82,27 @@ PyPI 上的 kct 只有纯 Python 包；C++ 后端要在本机用 cmake + 编译�
 
 ## 其余候选
 
-- **TraceMaker** v0.12.1（GPL-3.0，C++/CUDA/Python）：只发布 Linux x86_64 包，本机跑不了；要测只能用 GitHub Actions（需要先建仓库）。
+- **TraceMaker** v0.12.1（GPL-3.0-or-later，C++）：只发布 Linux x86_64 包，本机跑不了，在 GitHub Actions 上测（用户 2026-10-31 选定），见下节。
 - **fab_router**：fabPlane 自己的路由器，只在它的桌面程序里，不能批量测，已排除。
 - **托管服务 Zap!、Koppar、DeepPCB、Quilter**：要注册账号并上传设计，未测，需要用户批准。
+
+## TraceMaker 云端测试（2026-11-01）
+
+- 工作流 `.github/workflows/bakeoff.yml`：三台 `ubuntu-24.04` 机器同时跑，各测一个布线器（fastroute、KRT、TraceMaker），
+  板子、删线方法、打分方法都和上面本机测的一样（`eval/router_bakeoff.py`）。fastroute 和 KRT 也在云端重跑，
+  是为了三者的用时在同一种机器上可比；它们本机的成绩照旧留在上面的表里。
+- 只在改了这个工作流或对比脚本时自动运行，也能在 Actions 页面手动运行；外人的拉取请求不能触发它。
+- 安装：发布包 `tracemaker-0.12.1-linux-x86_64.tar.gz`，SHA-256 `d46e399f…8749`，与 GitHub 发布页记录的一致
+  （本机下载后用 certutil 核对过，并看过包里的文件清单：3 个程序、查看器网页、一块示例板、说明和许可证）。
+  它说明里写的要求是 glibc 2.38 以上、不需要 CUDA，Ubuntu 24.04 满足。
+- 命令：`tracemaker route 板.kicad_pcb -o 输出.kicad_pcb --json 摘要.json --no-gpu --no-kb`
+  （`eda_agent/tools/routers.py` 的 `tracemaker_route`）。参数按官方 `docs/reference/cli.md`（v0.12.1）核对：
+  - `--no-gpu`：云端机器没有显卡；文档写明结果与用显卡相同。
+  - `--no-kb`：不读写它跨运行的「失败记忆」，每块板都从零开始，结果不受前一块板影响。
+  - 时间：用它的默认值，不加 `--time`、`--work`。文档写的默认做法是每个变体 120 秒，没布完再用 `--relax` 各重布最多 120 秒。
+    fastroute 我们给了 870 秒、KRT 不限（外层都是 900 秒），所以这是「各用各的出厂默认」的比较，不是同样时间预算的比较。
+  - 退出码 0 = 全部布通，3 = 有没布通的但照样写出结果；两种都交给 KiCad DRC 打分，其他退出码算出错。
+- 结果从运行摘要和注释读（不用登录），写进下表。
 
 ## 第三方评测（单一来源，且是评测方自己做的）
 

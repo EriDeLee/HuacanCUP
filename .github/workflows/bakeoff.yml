@@ -1,0 +1,165 @@
+name: bakeoff
+
+# 布线器对比（ADR-0004）：KiCad 自带的 5 块示例板，删掉走线、过孔、铺铜后让布线器各布一次，KiCad DRC 打分。
+# TraceMaker 只有 Linux 版，所以在这里跑；fastroute 和 KRT 在同一种机器上一起跑，用时才可比。
+# 三个布线器各占一台机器同时跑。只在改了这个工作流或对比脚本时运行，也可以在 Actions 页面手动运行。
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bakeoff.yml
+      - eval/router_bakeoff.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bakeoff-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  route:
+    name: ${{ matrix.router }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        router: [fastroute, krt, tracemaker]
+    defaults:
+      run:
+        shell: bash # 带 -e 和 pipefail
+    env:
+      EDA_AGENT_CONFIG: config.linux.yaml
+      PYTHONUNBUFFERED: "1"
+      KRT_COMMIT: 83646c8b56c3571067c359cf5524167abfef4c0f
+      KRT_SO_SHA256: 02e54aa45021ea6db60f9683dac165a8705164ce970b76c54becacbfd6d8d186
+      # 和 ADR-0004 本机测的是同样 5 块板
+      BOARDS: ecc83/ecc83-pp interf_u/interf_u pic_programmer/pic_programmer stickhub/StickHub multichannel/multichannel_mixer
+    steps:
+      # 第三方 action 都钉在提交哈希上，旁边的注释是对应的版本号
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: KiCad 10 开始后台安装 (带示例工程，对比用的板子在里面)
+        run: |
+          mkdir -p ci-logs
+          KICAD_WITH_DEMOS=1 bash .github/scripts/bg.sh start kicad bash .github/scripts/install_kicad.sh
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        id: python
+        with:
+          python-version: "3.14"
+
+      # 钥匙和 ci.yml 的一样，两个工作流共用同一份缓存
+      - name: Python 依赖缓存
+        id: venv-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: venv
+          key: venv-ubuntu-24.04-py${{ steps.python.outputs.python-version }}-${{ hashFiles('requirements.txt', 'requirements-dev.txt') }}
+
+      - name: Python 依赖 (缓存没命中才装)
+        if: steps.venv-cache.outputs.cache-hit != 'true'
+        run: |
+          {
+            python -m venv venv
+            venv/bin/python -m pip install -r requirements-dev.txt
+          } 2>&1 | tee ci-logs/1-python.log
+
+      - name: fastroute 0.1.14 (校验哈希)
+        if: matrix.router == 'fastroute'
+        run: |
+          {
+            mkdir -p .tools/fastroute .tools/downloads
+            curl -fsSL -o .tools/downloads/fastroute.tar.gz \
+              https://github.com/parisxmas/fastroute/releases/download/v0.1.14/fastroute-0.1.14-linux-x64.tar.gz
+            echo "079a109f76d84836e7d7a54519e75759dcab9baacc9c58b4224b027b852e49c6  .tools/downloads/fastroute.tar.gz" | sha256sum -c -
+            tar -xzf .tools/downloads/fastroute.tar.gz -C .tools/fastroute
+            chmod +x .tools/fastroute/fastroute-0.1.14-linux-x64/fastroute
+          } 2>&1 | tee ci-logs/2-router.log
+
+      - name: 布线器缓存 (KRT)
+        if: matrix.router == 'krt'
+        id: krt-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/KiCadRoutingTools
+            .tools/venv-krt
+          key: krt-ubuntu-24.04-py${{ steps.python.outputs.python-version }}-${{ env.KRT_COMMIT }}-${{ env.KRT_SO_SHA256 }}-${{ hashFiles('.github/krt-requirements.txt') }}
+
+      - name: KiCadRoutingTools v0.23.7 (缓存没命中才装)
+        if: matrix.router == 'krt' && steps.krt-cache.outputs.cache-hit != 'true'
+        run: bash .github/scripts/install_krt.sh 2>&1 | tee ci-logs/2-router.log
+
+      - name: 检查 KRT (从缓存取出的也核对提交和哈希)
+        if: matrix.router == 'krt'
+        run: |
+          {
+            head=$(git -C .tools/KiCadRoutingTools rev-parse HEAD)
+            echo "KiCadRoutingTools 提交 $head"
+            [ "$head" = "$KRT_COMMIT" ]
+            echo "$KRT_SO_SHA256  .tools/KiCadRoutingTools/rust_router/grid_router.so" | sha256sum -c -
+          } 2>&1 | tee ci-logs/3-krt-check.log
+
+      - name: TraceMaker 0.12.1 (校验哈希)
+        if: matrix.router == 'tracemaker'
+        run: |
+          {
+            mkdir -p .tools/tracemaker .tools/downloads
+            curl -fsSL -o .tools/downloads/tracemaker.tar.gz \
+              https://github.com/DingoOz/TraceMaker/releases/download/v0.12.1/tracemaker-0.12.1-linux-x86_64.tar.gz
+            echo "d46e399f2be428b7f12bfb84ae264885baf51c49397e8f7bd5180c304c818749  .tools/downloads/tracemaker.tar.gz" | sha256sum -c -
+            tar -xzf .tools/downloads/tracemaker.tar.gz -C .tools/tracemaker
+            .tools/tracemaker/tracemaker-0.12.1-linux-x86_64/bin/tracemaker version
+          } 2>&1 | tee ci-logs/2-router.log
+
+      - name: 等 KiCad 装完
+        run: bash .github/scripts/bg.sh wait kicad 900 2>&1 | tee ci-logs/4-kicad.log
+
+      - name: 对比用的 5 块板都在
+        run: |
+          # 管道里的循环不受 bash -e 管，所以缺板时显式退出
+          {
+            missing=0
+            for spec in $BOARDS; do
+              board="/usr/share/kicad/demos/${spec%%/*}/${spec#*/}.kicad_pcb"
+              if [ -f "$board" ]; then ls -l "$board"; else echo "缺少 $board"; missing=1; fi
+            done
+            exit "$missing"
+          } 2>&1 | tee ci-logs/5-boards.log
+
+      - name: 布线器对比 (${{ matrix.router }})
+        run: |
+          # shellcheck disable=SC2086 # $BOARDS 故意按空格拆成多块板
+          xvfb-run -a venv/bin/python eval/router_bakeoff.py --routers ${{ matrix.router }} \
+            --out runs/bakeoff-${{ matrix.router }} $BOARDS 2>&1 | tee ci-logs/6-bakeoff.log
+
+      - name: 结果写成运行摘要和注释 (不用登录就能看)
+        if: always()
+        run: |
+          if [ -f runs/bakeoff-${{ matrix.router }}/results.json ]; then
+            python3 .github/scripts/bakeoff_summary.py runs/bakeoff-${{ matrix.router }}/results.json
+          else
+            echo "::warning::没有 results.json，对比没跑完"
+          fi
+
+      - name: 失败时把日志尾部写成注释 (Actions 日志要登录才能看，注释不用)
+        if: failure()
+        run: python3 .github/scripts/annotate_failure.py
+
+      - name: 上传运行产物
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bakeoff-${{ matrix.router }}
+          path: |
+            ci-logs/
+            runs/bakeoff-*/results.json
+            runs/bakeoff-*/trace.jsonl
+            runs/bakeoff-*/logs/
+            runs/bakeoff-*/*/*/drc-*.json
+            runs/bakeoff-*/*/*/*_summary.json
+          if-no-files-found: warn
+          retention-days: 14
