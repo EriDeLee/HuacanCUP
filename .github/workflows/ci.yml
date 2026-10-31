@@ -1,0 +1,122 @@
+name: ci
+
+# Linux 上的完整验证（ADR-0012）：检查、单元测试、需要 KiCad 的工具测试、冒烟。
+# 本机 Windows 的验证见 AGENTS.md；这里证明同样的代码在 Linux 上也走得通。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash # 带 -e 和 pipefail，管道里任何一步失败整步就失败
+    env:
+      EDA_AGENT_CONFIG: config.linux.yaml
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Free disk space (KiCad 的库很大)
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      # 第三方 action 都钉在提交哈希上，旁边的注释是对应的版本号
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+
+      - name: KiCad 10 (官方 PPA) 和无界面显示
+        run: |
+          mkdir -p ci-logs
+          {
+            sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
+            sudo apt-get update
+            sudo apt-get install -y --install-recommends kicad xvfb libngspice0
+            kicad-cli version
+            /usr/bin/python3 -c "import pcbnew; print('pcbnew', pcbnew.Version())"
+            ls /usr/lib/x86_64-linux-gnu/libngspice.so.0
+            ls /usr/share/kicad
+            df -h /
+          } 2>&1 | tee ci-logs/1-kicad.log
+
+      - name: fastroute 0.1.14 (校验哈希)
+        run: |
+          {
+            mkdir -p .tools/fastroute .tools/downloads
+            curl -fsSL -o .tools/downloads/fastroute.tar.gz \
+              https://github.com/parisxmas/fastroute/releases/download/v0.1.14/fastroute-0.1.14-linux-x64.tar.gz
+            echo "079a109f76d84836e7d7a54519e75759dcab9baacc9c58b4224b027b852e49c6  .tools/downloads/fastroute.tar.gz" | sha256sum -c -
+            tar -xzf .tools/downloads/fastroute.tar.gz -C .tools/fastroute
+            chmod +x .tools/fastroute/fastroute-0.1.14-linux-x64/fastroute
+            # 不能写 `--help | head -3`：head 提前关管道时程序收到 SIGPIPE，pipefail 会把整步判失败
+            .tools/fastroute/fastroute-0.1.14-linux-x64/fastroute --help > ci-logs/fastroute-help.txt
+            head -3 ci-logs/fastroute-help.txt
+          } 2>&1 | tee ci-logs/2-fastroute.log
+
+      - name: KiCadRoutingTools v0.23.7 (钉提交，校验预编译模块的哈希)
+        run: |
+          {
+            git clone --no-checkout https://github.com/drandyhaas/KiCadRoutingTools .tools/KiCadRoutingTools
+            git -C .tools/KiCadRoutingTools checkout --detach 83646c8b56c3571067c359cf5524167abfef4c0f
+            curl -fsSL -o .tools/KiCadRoutingTools/rust_router/grid_router.so \
+              https://github.com/drandyhaas/KiCadRoutingTools/releases/download/v0.23.7/grid_router-linux-x86_64.so
+            echo "02e54aa45021ea6db60f9683dac165a8705164ce970b76c54becacbfd6d8d186  .tools/KiCadRoutingTools/rust_router/grid_router.so" | sha256sum -c -
+            python -m venv .tools/venv-krt
+            .tools/venv-krt/bin/python -m pip install numpy==2.5.4 scipy==1.18.1 shapely==2.2.0 pillow==13.0.0
+            .tools/venv-krt/bin/python .tools/KiCadRoutingTools/py_router/route.py --help > ci-logs/krt-help.txt
+            head -3 ci-logs/krt-help.txt
+          } 2>&1 | tee ci-logs/3-krt.log
+
+      - name: Python 依赖
+        run: |
+          {
+            python -m venv venv
+            venv/bin/python -m pip install -r requirements-dev.txt
+          } 2>&1 | tee ci-logs/4-python.log
+
+      - name: lint
+        run: venv/bin/python tasks.py lint 2>&1 | tee ci-logs/5-lint.log
+
+      - name: 单元测试
+        run: venv/bin/python tasks.py test 2>&1 | tee ci-logs/6-test.log
+
+      - name: 工具测试 (需要 KiCad)
+        run: xvfb-run -a venv/bin/python tasks.py test-tools 2>&1 | tee ci-logs/7-test-tools.log
+
+      - name: 冒烟 (LED 电路走完整链路)
+        run: xvfb-run -a venv/bin/python tasks.py smoke 2>&1 | tee ci-logs/8-smoke.log
+
+      - name: 失败时把日志尾部写成注释 (Actions 日志要登录才能看，注释不用)
+        if: failure()
+        run: python3 .github/scripts/annotate_failure.py
+
+      - name: 上传运行产物
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-run
+          path: |
+            ci-logs/
+            runs/smoke-*/summary.json
+            runs/smoke-*/trace.jsonl
+            runs/smoke-*/gates/
+            runs/smoke-*/logs/
+            runs/smoke-*/final/renders/
+            runs/smoke-*/kicad/*.kicad_sch
+            .pytest_tmp/
+          if-no-files-found: warn
+          retention-days: 14

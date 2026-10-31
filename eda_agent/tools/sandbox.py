@@ -24,7 +24,8 @@ _WINDOWS_PASSTHROUGH = (
     "PROCESSOR_IDENTIFIER",
     "OS",
 )
-_POSIX_PASSTHROUGH = ("PATH", "LANG", "LC_ALL", "LC_CTYPE")
+# DISPLAY / XAUTHORITY：KiCad 的 3D 渲染在没有屏幕的服务器上要靠 xvfb 提供一个显示。
+_POSIX_PASSTHROUGH = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "DISPLAY", "XAUTHORITY")
 
 
 def sandbox_env(tools: ToolsConfig, extra: Mapping[str, str] | None = None) -> dict[str, str]:

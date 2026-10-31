@@ -1,0 +1,16 @@
+# GitHub Actions（ubuntu-24.04）上用的配置，见 ADR-0012。
+# 路径对应 .github/workflows/ci.yml 里的安装步骤：KiCad 来自官方 PPA，其余装进 .tools/。
+tools:
+  sandbox_home: .tools/home
+  kicad_cli: /usr/bin/kicad-cli
+  # 系统自带的 python3 能 import pcbnew（KiCad 的包装在 /usr/lib/python3/dist-packages）
+  kicad_python: /usr/bin/python3
+  kicad_share: /usr/share/kicad
+  ngspice_lib: /usr/lib/x86_64-linux-gnu/libngspice.so.0
+  fastroute: .tools/fastroute/fastroute-0.1.14-linux-x64/fastroute
+  krt_python: .tools/venv-krt/bin/python
+  krt_route: .tools/KiCadRoutingTools/py_router/route.py
+  timeouts:
+    default_s: 300
+    route_s: 900
+    sim_s: 120

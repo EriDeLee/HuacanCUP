@@ -23,13 +23,15 @@ def tools() -> ToolsConfig:
 
 
 def test_kicad_cli_version(tools: ToolsConfig, tmp_path: Path) -> None:
-    assert KicadCli(tools, log_dir=tmp_path).version() == "10.0.8"
+    # Linux 的包可能在版本号后面带发行版后缀，所以只比前缀；
+    # 升到 10.0.9 时这里会报错，提醒我们有意识地升级。
+    assert KicadCli(tools, log_dir=tmp_path).version().startswith("10.0.8")
 
 
 def test_kicad_python_has_pcbnew_and_specctra_functions(tools: ToolsConfig, tmp_path: Path) -> None:
     result = run_kicad_script(tools, "probe.py", [], cwd=tmp_path, log_dir=tmp_path)
     info = json.loads(result.stdout.strip().splitlines()[-1])
-    assert info["pcbnew"] == "10.0.8"
+    assert info["pcbnew"].startswith("10.0.8")
     assert info["export_dsn"] and info["import_ses"]
 
 

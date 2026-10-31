@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from eda_agent.config import REPO_ROOT, load_config
@@ -11,6 +13,29 @@ def test_example_config_paths_are_absolute_and_inside_repo() -> None:
     for path in (tools.sandbox_home, tools.kicad_cli, tools.kicad_python, tools.fastroute):
         assert path.is_absolute()
         assert REPO_ROOT in path.parents
+
+
+def test_linux_sandbox_passes_the_display_but_still_drops_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("DISPLAY", ":99")
+    monkeypatch.setenv("GITHUB_TOKEN", "should-not-leak")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "should-not-leak")
+    tools = load_config(REPO_ROOT / "config.example.yaml").tools
+
+    env = sandbox_env(tools)
+
+    assert env["DISPLAY"] == ":99"
+    assert "GITHUB_TOKEN" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+
+
+def test_linux_config_loads_and_points_at_the_ci_install_locations() -> None:
+    tools = load_config(REPO_ROOT / "config.linux.yaml").tools
+    assert str(tools.kicad_cli).replace("\\", "/").endswith("/usr/bin/kicad-cli")
+    assert tools.fastroute.name == "fastroute"
+    assert REPO_ROOT in tools.krt_python.parents
 
 
 def test_sandbox_redirects_tool_state_and_drops_secrets(
