@@ -7,7 +7,7 @@
 
 1. 不用 uv，只用 pip。直接依赖在 `requirements.txt`（运行）和 `requirements-dev.txt`（开发、测试）里写死版本号；
    间接依赖不锁。`pyproject.toml` 只放 ruff、mypy、pytest 的配置。
-2. 主程序用便携 Python 3.14（`C:\Users\Lee\opencode\config\python-3.14`），环境建在仓库里的 `venv\`。
+2. 主程序用便携 Python 3.14（`<用户目录>\opencode\config\python-3.14`），环境建在仓库里的 `venv\`。
    pip 缓存放在 `venv\.pipcache`（`venv\pip.ini`）。
 3. 需要 `import pcbnew` 的步骤（建板、Specctra 导出导回）放在 `eda_agent/kicad_side/`，
    用 KiCad 自带的 `python.exe` 单独起进程运行，只用标准库和 pcbnew，不往 KiCad 的 Python 里装任何包。
