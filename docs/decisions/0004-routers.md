@@ -11,7 +11,7 @@
    制造文件用 fastroute 的结果，fastroute 的 DRC 不过冒烟就失败。
 3. Freerouting（需要 Java 25）和 kicad-tools（C++ 版 4/5 块板超时）从代码和配置里删除，
    适配代码留在提交 aeee649，实测成绩留在本文。`.tools/` 里的 Freerouting（62 MB）、JRE 25（179 MB）、
-   venv-kct（277 MB）本地文件没有删，等用户说。
+   venv-kct（277 MB）本地文件，用户决定留着（2026-10-31）；它们已不在配置里，不会被代码调用。
 4. 仍然开放（用户说「再找找更顶级的」，没找到更强的）：TraceMaker 要 Linux，要等 GitHub 仓库建好用 Actions 测；
    托管服务（Zap!、Koppar）要上传设计；两块大板要把板子的最小线宽、过孔传给每个布线器后重测。
    我们自己生成的板子规则是一致的，不会有大板上那种「规则没传进布线器」的问题，但 M1 加网络类以后要验证 fastroute 收得到。
