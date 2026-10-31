@@ -5,16 +5,16 @@
     python -m eda_agent.emit.skidl_emit --design design.json --out-dir kicad --name led
 
 SKiDL 会在当前目录写日志文件，所以调用方把 cwd 设成输出目录。
-M0 只处理单页原理图；按功能块分页在 M1 做。
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
-from eda_agent.ir.models import Design, load_design
+from eda_agent.ir.models import Design, Part, load_design
 
 
 def emit_schematic(
@@ -24,11 +24,13 @@ def emit_schematic(
     lib_dirs: list[Path] | None = None,
     mode: str = "normal",
     auto_stub: bool = False,
+    blocks_as_sheets: bool = False,
 ) -> Path:
     """生成原理图。
 
     mode 是 schematizer 的两种模式：normal 摆放并连线；labels 每个引脚只挂网络标签、不连线。
     auto_stub 打开时，连不好线的网络改用全局标签，并用 KiCad ERC 反复修正（schematizer 的选项）。
+    blocks_as_sheets 打开时，IR 里同一功能块（parts[].block）的元件画在同一张子页上。
     """
     import skidl
 
@@ -36,12 +38,17 @@ def emit_schematic(
     # 工程自带的符号库（比如示例工程里的 .kicad_sym）所在目录，排在 KiCad 自带库前面。
     for lib_dir in reversed(lib_dirs or []):
         skidl.lib_search_paths[skidl.KICAD10].insert(0, str(lib_dir))
-    parts = {}
+    by_block: dict[str | None, list[Part]] = {}
     for part in design.parts:
-        lib, symbol = part.symbol.split(":", 1)
-        parts[part.ref] = skidl.Part(
-            lib, symbol, ref=part.ref, value=part.value, footprint=part.footprint
-        )
+        by_block.setdefault(part.block if blocks_as_sheets else None, []).append(part)
+    parts = {}
+    for block, members in by_block.items():
+        with skidl.Group(block) if block else nullcontext():
+            for part in members:
+                lib, symbol = part.symbol.split(":", 1)
+                parts[part.ref] = skidl.Part(
+                    lib, symbol, ref=part.ref, value=part.value, footprint=part.footprint
+                )
     for net in design.nets:
         skidl_net = skidl.Net(net.name)
         for ref, pin in net.nodes:
@@ -74,9 +81,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lib-dir", type=Path, action="append", default=[])
     parser.add_argument("--mode", choices=("normal", "labels"), default="normal")
     parser.add_argument("--auto-stub", action="store_true")
+    parser.add_argument("--blocks-as-sheets", action="store_true")
     args = parser.parse_args(argv)
-    design = load_design(args.design)
-    sch = emit_schematic(design, args.out_dir, args.name, args.lib_dir, args.mode, args.auto_stub)
+    sch = emit_schematic(
+        load_design(args.design),
+        args.out_dir,
+        args.name,
+        args.lib_dir,
+        args.mode,
+        args.auto_stub,
+        args.blocks_as_sheets,
+    )
     print(sch)
     return 0
 

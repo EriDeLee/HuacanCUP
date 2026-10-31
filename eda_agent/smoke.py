@@ -27,6 +27,7 @@ from typing import Any
 
 from eda_agent.config import REPO_ROOT, load_config
 from eda_agent.gates.kicad_reports import GateReport, drc_gate, erc_gate
+from eda_agent.gates.schematic_layout import layout_gate
 from eda_agent.ir.models import load_design
 from eda_agent.tools.kicad_cli import KicadCli
 from eda_agent.tools.kicad_python import run_kicad_script
@@ -109,6 +110,12 @@ class Smoke:
             report = self.gates_dir / "erc.json"
             self.kicad.sch_erc(sch, report, severity="all")
             gate = self._record("erc", erc_gate(report))
+            detail.update(passed=gate.passed, **gate.counts)
+        return gate
+
+    def layout(self, sch: Path) -> GateReport:
+        with self.step("schematic-layout") as detail:
+            gate = self._record("schematic_layout", layout_gate(sch))
             detail.update(passed=gate.passed, **gate.counts)
         return gate
 
@@ -216,6 +223,7 @@ class Smoke:
         routed: dict[str, Path] = {}
         try:
             sch = self.schematic()
+            layout = self.layout(sch)
             erc = self.erc(sch)
             pcb = self.board(sch)
             for router in routers:
@@ -228,7 +236,12 @@ class Smoke:
             if primary_gate is not None and primary_gate.passed:
                 summary["exports"] = self.export(routed[primary], sch)
             summary["passed"] = (
-                bool(erc.passed and primary_gate is not None and primary_gate.passed)
+                bool(
+                    layout.passed
+                    and erc.passed
+                    and primary_gate is not None
+                    and primary_gate.passed
+                )
                 and "exports" in summary
             )
         except Exception as exc:

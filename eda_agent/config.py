@@ -34,6 +34,9 @@ class ToolsConfig(BaseModel):
     freerouting_jar: Path
     krt_python: Path
     krt_route: Path
+    # M0 对比用的候选布线器（ADR-0004），没装就留空。
+    fastroute: Path | None = None
+    kct: Path | None = None
     timeouts: Timeouts = Timeouts()
 
 
@@ -62,9 +65,9 @@ def load_config(path: Path | None = None) -> Config:
     tools = cfg.tools
     resolved = tools.model_copy(
         update={
-            name: _absolute(getattr(tools, name))
-            for name, field in ToolsConfig.model_fields.items()
-            if field.annotation is Path
+            name: _absolute(value)
+            for name in ToolsConfig.model_fields
+            if isinstance(value := getattr(tools, name), Path)
         }
     )
     return cfg.model_copy(update={"tools": resolved})

@@ -46,7 +46,7 @@
 |---|---|---|
 | 编排 | **自写薄编排层（Python 3.11+）**，不用 LangGraph/CrewAI/OpenClaw | 流程是固定状态机 + 回退边，自写最可控、最易复现 |
 | 模型 | **全部走 API**；`llm/` 做供应商抽象（Anthropic + OpenAI 兼容接口） | 用户决定 |
-| 本地 GPU | **只跑向量模型**（数据手册与历史设计检索） | 用户决定 |
+| 向量模型 | **跑在用户的云 GPU 上，只通过一个 API 端口调用**（数据手册与历史设计检索）；开发机没有可用的 GPU；具体模型 M4 用真实数据对比后再定 | 用户决定，ADR-0010 |
 | 存储 | **只用文件**：JSON / JSONL / Markdown / `.npy`。不建数据库服务 | 用户不想碰数据库；可审计、可 git 追踪 |
 | 电路 IR | 自定义 `design.json`（见 §5） | 便于确定性校验、diff、补丁；与具体 EDA 解耦 |
 | 原理图生成 | **SKiDL** `generate_schematic()`（SKiDL 3.0 把布局布线交给 schematizer；层次化子电路→多页） | ADR-0009：大电路要开 `auto_stub`，不连线的元件会让它崩溃 |
@@ -320,7 +320,7 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 
 | # | 周 | 内容 | 完成标准 |
 |---|---|---|---|
-| M0 | 11/02–11/08 | **工具链冒烟（本机 `.tools/` + GitHub Actions，ADR-0001）**：KiCad 10.0.8（自带 ngspice）、Freerouting / KiCadRoutingTools、SKiDL、lark-oapi 跑通；手写一个 LED+电阻电路走完：IR→原理图→ERC→PCB→布线（DSN→SES 回导，或直接读写 .kicad_pcb）→DRC→Gerber/STEP/GLB/render | `python tasks.py smoke` 全绿。**必须验证并记录**：① 无界面下 DSN 导出与 SES 导入的方法（pcbnew Python API 的 Specctra 导出/导入函数在所选 KiCad 版本是否可用）；② `kicad-cli` 是否支持导出 GLB；③ SKiDL `generate_schematic` 对 30+ 器件电路的可读性；④ 选定 embedding 模型 |
+| M0 | 11/02–11/08 | **工具链冒烟（本机 `.tools/` + GitHub Actions，ADR-0001）**：KiCad 10.0.8（自带 ngspice）、Freerouting / KiCadRoutingTools、SKiDL、lark-oapi 跑通；手写一个 LED+电阻电路走完：IR→原理图→ERC→PCB→布线（DSN→SES 回导，或直接读写 .kicad_pcb）→DRC→Gerber/STEP/GLB/render | `python tasks.py smoke` 全绿。**必须验证并记录**：① 无界面下 DSN 导出与 SES 导入的方法（pcbnew Python API 的 Specctra 导出/导入函数在所选 KiCad 版本是否可用）；② `kicad-cli` 是否支持导出 GLB；③ SKiDL `generate_schematic` 对 30+ 器件电路的可读性；④ 选定 embedding 模型（已推迟到 M4，ADR-0010） |
 | M1 | 11/09–11/22 | IR（pydantic + JSON Schema）、JSON Patch 应用器、IR→SKiDL→KiCad 发射器、运行目录与 trace | 10 个手写 IR 样例全部生成可打开的工程 |
 | M2 | 11/23–12/06 | G1/G2/G3 全部 Gate；测试台生成器；收敛重试 | 每条规则有正反单测；5 个手写电路的仿真判定与手算一致 |
 | M3 | 12/07–12/27 | LLM 抽象、各智能体、编排状态机、回退与预算、断点续跑；CLI：`eda-agent run "需求"` | 3 个演示需求在 CLI 端到端跑出交付物（允许人工节点用命令行确认） |
@@ -407,10 +407,10 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 
 - [x] 所选 KiCad 版本下，无界面 DSN 导出 / SES 导入的可用方法 —— KiCad 10.0.8 用 `pcbnew.ExportSpecctraDSN` / `ImportSpecctraSES`，LED 板实测导回后 DRC 0 错误（ADR-0004）
 - [x] `kicad-cli` 是否可导出 GLB（否则 STEP→GLB 转换方案）—— `pcb export glb` 可用，冒烟已生成 board.glb（ADR-0002）
-- [ ] SKiDL `generate_schematic` 在 KiCad 9/10 下对中等规模电路的效果 —— 已实测：默认模式只适合很小的电路，`auto_stub` 可画 50 个元件的单页，不连线的元件会让它崩溃；可读性等用户看图（ADR-0009）
+- [x] SKiDL `generate_schematic` 在 KiCad 9/10 下对中等规模电路的效果 —— 实测不能直接用：默认模式只适合很小的电路；`auto_stub` 下 50 个元件的单页会把大部分符号甩出图纸；只有 labels 模式能放下 63 个元件；不连线的元件会让它崩溃（ADR-0009）。替代做法待定
 - [x] kinet2pcb 与所选 KiCad 版本的 `pcbnew` 模块兼容性 —— Windows 上 import 即报错，改用自写建板脚本（ADR-0007）
-- [x] 两个布线器在 30 个以上元件的板子上的对比 —— pic_programmer：两者都全部连通；Freerouting 2 个 DRC 错误、KRT 6 个，都与铜层文字有关（ADR-0004）；选哪个等用户定
-- [ ] embedding 模型与接口格式（用户的云 GPU 只暴露一个 API 端口）
+- [x] 布线器在 30 个以上元件的板子上的对比 —— 5 块 KiCad 示例板 × 4 个布线器（ADR-0004）：规则一致的前三块上 fastroute 与 Freerouting 错误数相当、快 1.2–7.6 倍；kct 的 C++ 版 4 块板超时；两块大板的错误主要是规则没传进布线器，不能排名。选哪个、是否继续找更强的由用户定
+- [ ] embedding 模型与接口格式（用户的云 GPU 只暴露一个 API 端口）—— 推迟到 M4，用真实数据手册对比后再定（ADR-0010）
 - [ ] 协创者号平台项目展示网站的提交格式（仓库 + Demo URL 的具体要求）
 - [ ] HWE-Bench 作者回复
 - [ ] 飞书自建应用创建与卡片回调权限

@@ -36,6 +36,12 @@ PLAN 的 M0 要求把 KiCad、ngspice、Freerouting 等装进同一个 Docker �
 注册表无新增。同一时段 `C:\Users\Lee\opencode\tmp\hsperfdata_Lee\` 也出现了，但重跑我们的 Freerouting 后它的时间戳没变，
 说明不是我们的 Java 进程写的；同时段另一个项目（HiSH）正在构建签名，推测是它，未证实。
 
+2026-10-31 19:00 前后复查：`C:\Users\Lee\opencode\config\python-3.14\Lib\` 下有 20 个当天新建的 `.pyc`（`__pycache__`）：
+17 个在 13:52–14:01，3 个在 17:36:59–17:37:02。时间与我两次没走沙箱的 Python 运行吻合
+（第一次 `python tasks.py test`；`kct.exe build-native --help`），不能排除别的程序也写过。内容只是编译缓存，删了会自动重建。
+用户决定保留（2026-10-31）。此后我的所有 Python 命令都经 `.tools/toolenv.cmd`（它设了 `PYTHONPYCACHEPREFIX`）。
+用户自己激活 venv 后运行没有这层保护；要消除可在 venv 的 `activate.bat` 里设 `PYTHONPYCACHEPREFIX`（未做）。
+
 系统自身留下、无法避免的记录：`C:\Windows\Prefetch` 预读文件、`Amcache.hve` 程序清单、Windows Defender 扫描记录、
 校验数字签名时的 `CryptnetUrlCache` 证书缓存、PowerShell 的启动缓存。
 
