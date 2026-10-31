@@ -1,12 +1,14 @@
 # ADR-0012 用 GitHub Actions 在 Linux 上做完整验证
 
-- 状态：已推送到 github.com/EriDeLee/HuacanCUP（2026-10-31）；第一次运行发现 1 个真问题，已修，见「运行记录」
+- 状态：已推送到 github.com/EriDeLee/HuacanCUP（2026-10-31）；第一次运行发现 1 个真问题，已修，见「运行记录」。
+  之后按用户要求提速（缓存 + 同时安装），见「提速」
 - 影响：ADR-0001 第 1 条（Linux 上的验证交给 GitHub Actions）；PLAN §16；AGENTS.md「测试」
 
 ## 做什么
 
-`.github/workflows/ci.yml` 在 `ubuntu-24.04` 上依次做：释放磁盘 → 装 KiCad 10 → 装 fastroute 和 KiCadRoutingTools →
-装 Python 依赖 → `lint` → `test` → `test-tools` → `smoke` → 上传运行产物。
+`.github/workflows/ci.yml` 在 `ubuntu-24.04` 上做：检出后马上在后台装 KiCad 10；取出 Python 依赖和布线器的缓存
+（布线器没命中就也在后台装）；装 fastroute；Python 依赖没命中才装；`lint` → `test`；等后台装完 →
+`test-tools` → `smoke` → 上传运行产物。
 触发条件：推送到 main、拉取请求、手动运行。工具测试和冒烟在 `xvfb-run` 下跑，因为 KiCad 的 3D 渲染需要一个显示。
 Linux 用的路径在 `config.linux.yaml`，工作流通过环境变量 `EDA_AGENT_CONFIG` 指向它。
 
@@ -14,10 +16,10 @@ Linux 用的路径在 `config.linux.yaml`，工作流通过环境变量 `EDA_AGE
 
 | 东西 | 钉法 |
 |---|---|
-| actions/checkout、setup-python、upload-artifact | 40 位提交哈希（对应 v7.0.1、v7.1.0、v7.0.2）；测试 `tests/test_workflow.py` 强制 |
+| actions/checkout、setup-python、cache、upload-artifact | 40 位提交哈希（对应 v7.0.1、v7.1.0、v6.1.0、v7.0.2）；测试 `tests/test_workflow.py` 强制 |
 | fastroute 0.1.14 Linux 包 | SHA-256 `079a109f…49c6`，与本机下载的和官方 SHA256SUMS 一致 |
 | KiCadRoutingTools v0.23.7 | 提交 `83646c8b…`（与本机安装的同一个），预编译模块 `grid_router-linux-x86_64.so` 的 SHA-256 `02e54aa4…d186` |
-| KRT 的 Python 依赖 | numpy 2.5.4、scipy 1.18.1、shapely 2.2.0、pillow 13.0.0（与本机 venv-krt 一致） |
+| KRT 的 Python 依赖 | `.github/krt-requirements.txt`：numpy 2.5.4、scipy 1.18.1、shapely 2.2.0、pillow 13.0.0（与本机 venv-krt 一致） |
 | 主程序依赖 | `requirements-dev.txt`（直接依赖写死版本） |
 | Python | 3.14（setup-python 取最新的 3.14.x） |
 
@@ -69,6 +71,53 @@ Linux 分支的沙箱（透传 `DISPLAY`、仍然丢掉令牌和密钥）有单�
 Windows 不受影响：那里 venv 的 `python.exe` 不是符号链接。
 
 运行页面用 Chrome DevTools 协议（CDP）在用户的浏览器里读：公开仓库的 Actions 日志要登录才能看，用户的浏览器已登录。
+
+## 提速（2026-10-31，用户要求「最顶级的缓存、冷启动压到最短」）
+
+### 时间花在哪（运行 41208611729，提交 b8a5e2e，共 4 分 43 秒）
+
+环境准备占 225 秒，测试本身 52 秒。下面的拆分来自原始日志每行的时间戳：
+
+| 步骤 | 秒 | 拆开 |
+|---|---|---|
+| 释放磁盘 | 92.5 | 全花在 `sudo rm -rf`。删之前磁盘已空 86 GB，KiCad 装完只占 4776 MB |
+| 装 KiCad | 51.1 | add-apt-repository 10.3（其中联网查 PPA 信息和公钥 5.6）；重复的 `apt-get update` 1.9；下载 570 MB 9（65 MB/s）；解包 23（3D 模型一个包 9.7，装完 3216 MB）；配置和触发器 3.2（man-db 触发器几乎不花时间）；needrestart 0.8；版本检查 2.8 |
+| Python 依赖 | 59.4 | 建 venv 3.5；解析、下载、从源码包构建 skidl/kinet2pcb/hierplace 约 12；写入并预编译约 1.46 万个 .py 共 44（本机 venv 里数的，其中 lark-oapi 占 1.07 万个） |
+| KiCadRoutingTools | 21.7 | clone 5.7；建 venv 5；装 numpy 等 4 个包 8.5；`--help` 1.4 |
+| fastroute | 0.3 | |
+
+KiCad PPA 的包关系（`Packages.gz`）：`kicad` 推荐 kicad-libraries、kicad-doc-en、kicad-demos、unixodbc；
+kicad-libraries 推荐符号库、封装库、模板和 3D 模型。示例工程 72.9 MB、英文手册 55.2 MB（装完 339 MB、59 MB），CI 用不到。
+
+### 用户的选择
+
+- 做：去掉释放磁盘；三样同时装；缓存 Python 依赖；缓存布线器；不装示例工程和英文手册。
+- 保留 3D 模型（用户：「3d模型对渲染挺重要的呀」）。
+- 不做：失败的运行也保存缓存（保持 actions/cache 的默认：整次运行通过才在最后保存）；
+  KiCad 安装的其余精简（公钥存进仓库、去掉重复的索引更新和 needrestart、dpkg 不逐个文件等写盘）；pip 不预编译；
+  另外 3 个只在没缓存时省几秒的小项。
+- 更重的做法都不做：自建 Docker 镜像、官方 `kicad/kicad:10.0.8-full` 镜像（压缩后 1448 MB）、
+  缓存装好的 KiCad 文件（或第三方 cache-apt-pkgs-action）、缓存 .deb、CI 用 uv、VPS 自托管 runner、付费大机器。
+
+### 怎么做的
+
+- `.github/scripts/bg.sh`：`start` 把命令放到后台，输出写进 `ci-logs/bg/<名字>.log`，结束时把退出码写进文件；
+  `wait` 等它结束、原样打印输出、用它的退出码退出（超时 124，没启动过 2）。有 4 个测试（`tests/test_bg_script.py`，只在 Linux 上跑）。
+  后台日志放在 `ci-logs/bg/`：失败注释脚本只看 `ci-logs/` 第一层，不会把出错之后还在写的后台日志当成出错的那一步。
+- KiCad 检出后立刻在后台装（`install_kicad.sh`，命令和以前一样）。`apt-get install` 末尾加 `kicad-demos- kicad-doc-en-`
+  （名字后加减号表示不装），其余推荐包照装：3D 模型、符号库、封装库都是作为推荐包装上的，照装其余推荐包最不容易漏东西。
+- 布线器缓存没命中时也在后台装（`install_krt.sh`）。Python 依赖、`lint`、单元测试在前台同时进行，工具测试之前才等两个后台安装。
+- 缓存钥匙：Python 依赖 = 镜像名 + Python 完整版本号（setup-python 的输出）+ `requirements.txt` 和 `requirements-dev.txt` 的哈希；
+  布线器 = 镜像名 + Python 版本 + KRT 提交 + 预编译模块的 SHA-256 + `.github/krt-requirements.txt` 的哈希。
+  任何一项变了就重装一次。从缓存取出的布线器仍核对提交号和预编译模块的哈希。
+- GitHub 的缓存规则（官方文档 Dependency caching reference）：每个仓库默认共 10 GB；7 天没被用过的缓存自动删除；
+  PR 里建的缓存只给这个 PR 自己用，写不进 main 的缓存。
+- `tests/test_workflow.py` 新增：每次下载后紧跟哈希校验（`ci.yml` 和 `.github/scripts/*.sh` 都查）；工作流引用的脚本都存在；
+  缓存钥匙含 Python 版本和依赖清单的哈希，且 `hashFiles` 指向的文件都存在（文件名写错时 `hashFiles` 返回空串，钥匙就不再随依赖变化）；
+  每个后台安装都在工具测试之前恰好等一次，启动和等待的条件一致。
+
+预计（估计，未验证）：缓存命中约 1.6 分钟，KiCad 安装是最慢的一路；没命中约 2.1 分钟，
+Python 依赖的 59 秒加 lint、单元测试会比 KiCad 安装更慢。实测见下面的「提速后的运行」。
 
 ## 后续
 

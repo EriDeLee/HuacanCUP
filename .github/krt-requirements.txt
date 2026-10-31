@@ -1,0 +1,6 @@
+# KiCadRoutingTools v0.23.7 dependencies for CI (.tools/venv-krt); same versions as the local venv-krt (ADR-0012).
+# The hash of this file is part of the router cache key: changing a version invalidates the cache.
+numpy==2.5.4
+scipy==1.18.1
+shapely==2.2.0
+pillow==13.0.0

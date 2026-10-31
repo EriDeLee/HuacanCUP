@@ -11,6 +11,7 @@ import yaml
 from eda_agent.config import REPO_ROOT
 
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+SCRIPTS = sorted((REPO_ROOT / ".github" / "scripts").glob("*.sh"))
 
 
 @pytest.fixture(scope="module")
@@ -43,6 +44,51 @@ def test_triggers_are_the_expected_ones(workflow: dict[str, Any]) -> None:
     assert set(triggers) == {"push", "pull_request", "workflow_dispatch"}
 
 
-def test_downloads_are_checked_against_a_hash() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    assert text.count("curl ") == text.count("sha256sum -c"), "每次 curl 下载后都要校验哈希"
+def test_every_download_is_checked_against_a_hash_right_after() -> None:
+    for path in [WORKFLOW, *SCRIPTS]:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines):
+            if "curl " in line and not line.lstrip().startswith("#"):
+                assert "sha256sum -c" in "\n".join(lines[i : i + 4]), (
+                    f"{path.name}:{i + 1} 下载后没有马上校验哈希"
+                )
+
+
+def test_scripts_named_in_the_workflow_exist() -> None:
+    named = set(re.findall(r"\.github/scripts/[\w.-]+", WORKFLOW.read_text(encoding="utf-8")))
+    assert named
+    for rel in named:
+        assert (REPO_ROOT / rel).is_file(), rel
+
+
+def test_cache_keys_change_with_the_python_version_and_dependency_files(
+    workflow: dict[str, Any],
+) -> None:
+    caches = [s for s in _steps(workflow) if str(s.get("uses", "")).startswith("actions/cache@")]
+    assert caches
+    for step in caches:
+        key = step["with"]["key"]
+        assert "steps.python.outputs.python-version" in key, key
+        groups = re.findall(r"hashFiles\(([^)]*)\)", key)
+        assert groups, f"缓存钥匙里没有依赖清单的哈希：{key}"
+        for group in groups:
+            for rel in re.findall(r"'([^']+)'", group):
+                # 文件名写错时 hashFiles 返回空串，钥匙就不再随依赖变化，会一直用旧缓存
+                assert (REPO_ROOT / rel).is_file(), f"hashFiles 指向不存在的文件：{rel}"
+
+
+def test_every_background_install_is_waited_for_before_the_tool_tests(
+    workflow: dict[str, Any],
+) -> None:
+    steps = _steps(workflow)
+    runs = [str(s.get("run", "")) for s in steps]
+    tools_at = next(i for i, r in enumerate(runs) if "tasks.py test-tools" in r)
+    starts = {
+        m.group(1): i for i, r in enumerate(runs) for m in re.finditer(r"bg\.sh start (\S+)", r)
+    }
+    assert "kicad" in starts
+    for name, at in starts.items():
+        waits = [i for i, r in enumerate(runs) if re.search(rf"bg\.sh wait {re.escape(name)}\b", r)]
+        assert len(waits) == 1, f"{name} 要恰好等一次"
+        assert at < waits[0] < tools_at, f"{name} 要在工具测试之前等它装完"
+        assert steps[waits[0]].get("if") == steps[at].get("if"), f"{name} 的启动和等待条件要一致"
