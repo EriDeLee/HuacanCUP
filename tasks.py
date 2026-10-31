@@ -5,6 +5,7 @@
     python tasks.py test         单元测试：不需要外部工具，不调用真实 LLM
     python tasks.py test-tools   需要 KiCad / ngspice / 布线器的测试（标了 @pytest.mark.tools）
     python tasks.py smoke        手写 LED 电路走完整链路，任何改动后都必须保持通过
+    python tasks.py schemas      由 pydantic 模型重新生成 schemas/*.schema.json（改了模型后运行）
 
 这里调用的是开发工具（pytest、ruff、mypy），不是 EDA 工具；EDA 工具一律走 eda_agent/tools。
 """
@@ -48,11 +49,20 @@ def smoke() -> int:
     return smoke_main([])
 
 
+def schemas() -> int:
+    from eda_agent.schemas import write_schemas
+
+    for path in write_schemas():
+        print("写出", path)
+    return 0
+
+
 TASKS: dict[str, tuple[Callable[[], int], str]] = {
     "lint": (lint, "ruff format --check、ruff check、mypy"),
     "test": (test, "单元测试（不需要外部工具）"),
     "test-tools": (test_tools, "需要 KiCad / ngspice / 布线器的测试"),
     "smoke": (smoke, "LED 电路走完整链路"),
+    "schemas": (schemas, "由 pydantic 模型重新生成 schemas/*.schema.json"),
 }
 
 

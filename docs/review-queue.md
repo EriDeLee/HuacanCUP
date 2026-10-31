@@ -12,6 +12,16 @@
 
 不同意哪条，告诉我编号，我改回去。
 
+## 等你拍板、我没有动的事
+
+### Q1 TraceMaker 在两块大板上远好于 fastroute 和 KRT，要不要换主用布线器？
+
+- 云端实测（ADR-0004「TraceMaker 云端测试」）：StickHub 上 TraceMaker 1 个错误，fastroute 105、KRT 17；
+  multichannel 上 TraceMaker 0 个，fastroute 488、KRT 281。小板上三者接近，pic_programmer 上 TraceMaker 有 4 条没连上。
+- 你定的是 fastroute 主用 + KRT 备用，我没有改。
+- 难点：TraceMaker 只有 Linux 版，本机 Windows 跑不了（它的说明写 WSL2 里也许能跑，但没人测过；WSL 在禁止清单里）。
+  最终部署是 Linux（PLAN M6），所以一种做法是「本机 fastroute + KRT，部署后 TraceMaker 主用」。
+
 ## 决定记录
 
 ### D1 TraceMaker 用出厂默认的时间限制
@@ -34,3 +44,24 @@
 - 选了：推送到 main 且改了 `bakeoff.yml` 或 `eval/router_bakeoff.py` 才自动跑；另外可以在 Actions 页面手动运行。
 - 其他选项：每次推送都跑（每次多占几十分钟机器）；只能手动运行（我不在浏览器里点按钮，那样它就只能等你回来点）。
 - 撤回：改 `bakeoff.yml` 的 `on:`。
+
+### D4 IR 的元件角色只定三个值
+
+- 选了：`role` 只有 hub（主芯片）、connector（连接器）、passive（两脚元件），另加 `anchor`（画在哪个元件旁边）。
+- 其他选项：按电路用途分，如主芯片、去耦电容、上拉电阻、串联电阻、指示灯、连接器……
+- 理由：画图只需要知道「怎么画」，用途从连接关系就能看出来；值越少，智能体写错的机会越少。
+- 撤回：改 `eda_agent/ir/models.py` 的 `role`，引擎按新值分支。
+
+### D5 spec.json 的模型推迟到 M2
+
+- 选了：M1 只做 design.json；spec.json（需求规格）和 M2 的测试台生成器一起定。
+- 其他选项：现在照 PLAN §5.1 的例子先写一版。
+- 理由：spec 里的测试台、测量字段要跟测试台生成器配套，现在定很可能返工。PLAN 的 M1 也只写了 IR。
+- 撤回：现在补写 `eda_agent/ir/spec.py`，约 1 小时（估计）。
+
+### D6 CI 装 KiCad 加下载超时与重试
+
+- 起因：提交 8568986 的 CI 卡在装 KiCad：Ubuntu 镜像 15 分钟只下了一半，同一时刻另外三台机器正常。是网络偶发问题，不是代码问题。
+- 选了：apt 每个连接 20 秒没动静就断开重试，最多 5 次（`install_kicad.sh`）。
+- 其他选项：不改，碰到了就等下一次推送重跑。
+- 撤回：删掉 `install_kicad.sh` 里的 `-o Acquire::...` 三个参数。

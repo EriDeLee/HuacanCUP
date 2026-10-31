@@ -52,6 +52,37 @@ def test_the_newest_step_log_and_tool_errors_become_annotations(
     assert all("\n" not in line for line in lines)
 
 
+def test_tool_errors_left_by_earlier_steps_are_not_reported(
+    annotate: ModuleType, tmp_path: Path
+) -> None:
+    """2026-11-01 的 CI：单元测试自己造的假错误日志占满了注释名额，
+
+    真正卡住的 KiCad 安装反而看不到。
+    """
+    earlier = tmp_path / "ci-logs" / "4-test.log"
+    failing = tmp_path / "ci-logs" / "7-kicad.log"
+    stale = tmp_path / ".pytest_tmp" / "t0" / "logs" / "001_x.stderr.txt"
+    fresh = tmp_path / "runs" / "smoke-y" / "logs" / "002_kicad-cli.stderr.txt"
+    for path, text in (
+        (earlier, "ok\n"),
+        (failing, "apt stuck\n"),
+        (stale, "fake\n"),
+        (fresh, "real\n"),
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    now = time.time()
+    os.utime(stale, (now - 100, now - 100))
+    os.utime(earlier, (now - 50, now - 50))
+    os.utime(failing, (now - 5, now - 5))
+
+    lines = annotate.annotations(tmp_path)
+
+    assert any("apt stuck" in line for line in lines)
+    assert any("real" in line for line in lines)
+    assert not any("fake" in line for line in lines)
+
+
 def test_long_logs_are_cut_and_the_count_is_capped(annotate: ModuleType, tmp_path: Path) -> None:
     for i in range(20):
         path = tmp_path / "runs" / f"smoke-{i}" / "logs" / "001_x.stderr.txt"

@@ -19,8 +19,11 @@ if [ "${KICAD_WITH_DEMOS:-0}" != 1 ]; then
   skip="kicad-demos- $skip"
 fi
 mark "安装（不装：$skip）"
+# 2026-11-01 的一次运行里 Ubuntu 镜像卡住，15 分钟只下了一半（同时另外三台机器正常）。
+# 一个连接 20 秒没动静就断开重试，最多重试 5 次，不让一个卡住的下载拖住整次运行。
 # shellcheck disable=SC2086 # $skip 故意按空格拆成多个包名
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --install-recommends \
+  -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=5 \
   kicad xvfb libngspice0 $skip
 mark "检查"
 kicad-cli version

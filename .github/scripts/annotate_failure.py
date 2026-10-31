@@ -32,14 +32,20 @@ def _newest(paths: list[Path]) -> list[Path]:
 
 
 def annotations(root: Path) -> list[str]:
-    """最新的一份步骤日志（最后跑的那一步就是失败的那一步）加最新几份非空的工具错误输出。"""
-    step_logs = _newest(list(root.glob("ci-logs/*.log")))[:1]
+    """最新的一份步骤日志（最后跑的那一步就是失败的那一步）加这一步里写出的非空工具错误输出。
+
+    「这一步里写出的」= 比上一步的日志新。前面步骤留下的文件（比如单元测试自己造的假日志）不算，
+    否则它们会占满注释的名额，真正的出错原因反而挤不进去。
+    """
+    steps = _newest(list(root.glob("ci-logs/*.log")))
+    step_logs = steps[:1]
+    cutoff = steps[1].stat().st_mtime if len(steps) > 1 else 0.0
     tool_logs = _newest(
         [
             p
             for pattern in ("runs/*/logs/*.stderr.txt", ".pytest_tmp/**/logs/*.stderr.txt")
             for p in root.glob(pattern)
-            if p.stat().st_size > 0
+            if p.stat().st_size > 0 and p.stat().st_mtime >= cutoff
         ]
     )
     out = []
