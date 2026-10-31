@@ -1,0 +1,36 @@
+{
+  "spec_sha256": null,
+  "blocks": [{"id": "led", "purpose": "LED 指示灯（M0 全链路冒烟用）"}],
+  "parts": [
+    {
+      "ref": "J1", "block": "led", "value": "5V_IN",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {
+      "ref": "R1", "block": "led", "value": "330",
+      "symbol": "Device:R",
+      "footprint": "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal"
+    },
+    {
+      "ref": "D1", "block": "led", "value": "Red",
+      "symbol": "Device:LED",
+      "footprint": "LED_THT:LED_D5.0mm"
+    }
+  ],
+  "nets": [
+    {"name": "VIN", "nodes": [["J1", "1"], ["R1", "1"]], "external_supply": true},
+    {"name": "LED_A", "nodes": [["R1", "2"], ["D1", "2"]]},
+    {"name": "GND", "nodes": [["D1", "1"], ["J1", "2"]], "external_supply": true}
+  ],
+  "board": {
+    "size_mm": [30, 20],
+    "layers": 2,
+    "edge_connectors": [{"ref": "J1", "side": "left"}]
+  },
+  "notes": [
+    "5 V 经 330 Ω 点亮红色 LED；Device:LED 的 1 脚是阴极 K、2 脚是阳极 A",
+    "VIN 和 GND 的电从 J1 进来，所以标了 external_supply",
+    "按 models/led_red_generic.lib 手算电流约 9.5 mA"
+  ]
+}
