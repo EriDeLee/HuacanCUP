@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "trace.schema.json",
   "title": "runs/<id>/trace.jsonl 中的一行事件",
-  "description": "M0 只定义 tool_call 与 step 两类；llm_call / gate / human / cost 在后续里程碑加入。",
+  "description": "M0：tool_call、step。M1：snapshot（存了一版设计）、patch（应用 JSON Patch，成败都记）、gate（检查报告）。llm_call / human / cost 在后续里程碑加入。网页回放完全依赖这个文件。",
   "type": "object",
   "required": ["ts", "run_id", "seq", "type"],
   "properties": {
     "ts": {"type": "string", "format": "date-time"},
     "run_id": {"type": "string", "minLength": 1},
     "seq": {"type": "integer", "minimum": 0},
-    "type": {"enum": ["tool_call", "step"]}
+    "type": {"enum": ["tool_call", "step", "snapshot", "patch", "gate"]}
   },
   "allOf": [
     {
@@ -39,6 +39,54 @@
           "name": {"type": "string"},
           "status": {"enum": ["start", "ok", "fail"]},
           "detail": {"type": "object"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "snapshot"}}},
+      "then": {
+        "required": ["iteration", "by", "path"],
+        "properties": {
+          "iteration": {"type": "integer", "minimum": 0},
+          "by": {"type": "string", "description": "谁存的：智能体名、human 或 example"},
+          "path": {"type": "string", "description": "相对运行目录，如 iterations/00/design.json"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "patch"}}},
+      "then": {
+        "required": ["by", "ok", "ops", "errors"],
+        "properties": {
+          "by": {"type": "string"},
+          "ok": {"type": "boolean"},
+          "ops": {"type": "integer", "minimum": 0},
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["kind", "message"],
+              "properties": {
+                "kind": {"enum": ["patch", "design"]},
+                "message": {"type": "string"},
+                "op_index": {"type": ["integer", "null"]},
+                "loc": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"type": {"const": "gate"}}},
+      "then": {
+        "required": ["gate", "passed", "counts", "iteration", "path"],
+        "properties": {
+          "gate": {"type": "string"},
+          "passed": {"type": "boolean"},
+          "counts": {"type": "object", "additionalProperties": {"type": "integer"}},
+          "iteration": {"type": "integer", "minimum": 0},
+          "path": {"type": "string"}
         }
       }
     }
