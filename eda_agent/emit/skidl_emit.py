@@ -17,10 +17,25 @@ from pathlib import Path
 from eda_agent.ir.models import Design, load_design
 
 
-def emit_schematic(design: Design, out_dir: Path, name: str) -> Path:
+def emit_schematic(
+    design: Design,
+    out_dir: Path,
+    name: str,
+    lib_dirs: list[Path] | None = None,
+    mode: str = "normal",
+    auto_stub: bool = False,
+) -> Path:
+    """生成原理图。
+
+    mode 是 schematizer 的两种模式：normal 摆放并连线；labels 每个引脚只挂网络标签、不连线。
+    auto_stub 打开时，连不好线的网络改用全局标签，并用 KiCad ERC 反复修正（schematizer 的选项）。
+    """
     import skidl
 
     skidl.set_default_tool(skidl.KICAD10)
+    # 工程自带的符号库（比如示例工程里的 .kicad_sym）所在目录，排在 KiCad 自带库前面。
+    for lib_dir in reversed(lib_dirs or []):
+        skidl.lib_search_paths[skidl.KICAD10].insert(0, str(lib_dir))
     parts = {}
     for part in design.parts:
         lib, symbol = part.symbol.split(":", 1)
@@ -37,7 +52,14 @@ def emit_schematic(design: Design, out_dir: Path, name: str) -> Path:
             skidl_net += skidl.Part("power", "PWR_FLAG").p["1"]
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    skidl.generate_schematic(filepath=str(out_dir), top_name=name, title=name, tool=skidl.KICAD10)
+    skidl.generate_schematic(
+        filepath=str(out_dir),
+        top_name=name,
+        title=name,
+        tool=skidl.KICAD10,
+        mode=mode,
+        auto_stub=auto_stub,
+    )
     sch = out_dir / f"{name}.kicad_sch"
     if not sch.exists():
         raise RuntimeError(f"SKiDL 没有生成 {sch}")
@@ -49,8 +71,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--design", type=Path, required=True)
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--name", required=True)
+    parser.add_argument("--lib-dir", type=Path, action="append", default=[])
+    parser.add_argument("--mode", choices=("normal", "labels"), default="normal")
+    parser.add_argument("--auto-stub", action="store_true")
     args = parser.parse_args(argv)
-    print(emit_schematic(load_design(args.design), args.out_dir, args.name))
+    design = load_design(args.design)
+    sch = emit_schematic(design, args.out_dir, args.name, args.lib_dir, args.mode, args.auto_stub)
+    print(sch)
     return 0
 
 

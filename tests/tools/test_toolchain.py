@@ -11,6 +11,7 @@ from eda_agent.config import REPO_ROOT, ToolsConfig, load_config
 from eda_agent.tools.kicad_cli import KicadCli
 from eda_agent.tools.kicad_python import run_kicad_script
 from eda_agent.tools.ngspice import run_netlist
+from eda_agent.tools.routers import freerouting_command
 from eda_agent.tools.runner import run_tool
 from eda_agent.tools.sandbox import sandbox_env
 
@@ -60,7 +61,7 @@ def test_ngspice_led_current_matches_hand_calculation(tools: ToolsConfig, tmp_pa
 @pytest.mark.parametrize(
     "name,argv",
     [
-        ("freerouting", lambda t: [t.freerouting, "--help"]),
+        ("freerouting", lambda t: [*freerouting_command(t), "--help"]),
         ("kicad-routing-tools", lambda t: [t.krt_python, t.krt_route, "--help"]),
     ],
 )

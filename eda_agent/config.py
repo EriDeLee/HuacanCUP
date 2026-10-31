@@ -30,7 +30,8 @@ class ToolsConfig(BaseModel):
     kicad_python: Path
     kicad_share: Path
     ngspice_lib: Path
-    freerouting: Path
+    freerouting_java: Path
+    freerouting_jar: Path
     krt_python: Path
     krt_route: Path
     timeouts: Timeouts = Timeouts()

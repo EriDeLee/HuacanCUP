@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import itertools
+import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -15,11 +17,13 @@ import time
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from eda_agent.trace import TraceWriter
 
 GRACE_PERIOD_S = 10.0
 _TAIL_CHARS = 2000
+_UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*]')
 _log_counter = itertools.count(1)
 
 
@@ -43,6 +47,16 @@ class ToolResult:
         if self.exit_code not in ok_codes:
             raise ToolError(self, f"{self.tool} 退出码 {self.exit_code}")
         return self
+
+    def last_json(self) -> Any:
+        """stdout 里最后一行 JSON。
+
+        KiCad 的 Python 退出时还会打印 SWIG 提示，所以不能只看最后一行。
+        """
+        for line in reversed(self.stdout.splitlines()):
+            if line.lstrip().startswith(("{", "[")):
+                return json.loads(line)
+        raise ToolError(self, f"{self.tool} 的输出里没有 JSON 结果")
 
 
 class ToolError(RuntimeError):
@@ -102,7 +116,8 @@ def run_tool(
     stdout_path = stderr_path = None
     if log_dir is not None:
         log_dir.mkdir(parents=True, exist_ok=True)
-        stem = f"{next(_log_counter):03d}_{tool}"
+        # 工具名里可能有 ":"（如 kicad-python:board_build.py），Windows 文件名里不能用。
+        stem = f"{next(_log_counter):03d}_{_UNSAFE_FILENAME.sub('_', tool)}"
         stdout_path = log_dir / f"{stem}.stdout.txt"
         stderr_path = log_dir / f"{stem}.stderr.txt"
         stdout_path.write_text(stdout, encoding="utf-8")

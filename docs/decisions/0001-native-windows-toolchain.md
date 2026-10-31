@@ -32,6 +32,10 @@ PLAN 的 M0 要求把 KiCad、ngspice、Freerouting 等装进同一个 Docker �
 | `C:\Users\Lee\opencode\tmp\org.kicad.kicad\instances\`（空文件夹） | opencode 设了 `TMPDIR`，wxWidgets 优先读它，当时沙箱漏设 | 已在沙箱里补上 `TMPDIR`/`TEMPDIR` 并复查；旧文件夹用户决定保留 |
 | `C:\Users\Lee\opencode\tmp\pytest-of-Lee\` | 第一次跑测试时 pytest 用了系统临时目录 | 已改为 `.pytest_tmp/`；旧目录经用户同意已删除 |
 
+加装 Freerouting Java 版和 JRE 25 后复查（2026-10-31 16:00 起）：JVM 的 `hsperfdata_Lee` 写在 `.tools/home/Temp/`；
+注册表无新增。同一时段 `C:\Users\Lee\opencode\tmp\hsperfdata_Lee\` 也出现了，但重跑我们的 Freerouting 后它的时间戳没变，
+说明不是我们的 Java 进程写的；同时段另一个项目（HiSH）正在构建签名，推测是它，未证实。
+
 系统自身留下、无法避免的记录：`C:\Windows\Prefetch` 预读文件、`Amcache.hve` 程序清单、Windows Defender 扫描记录、
 校验数字签名时的 `CryptnetUrlCache` 证书缓存、PowerShell 的启动缓存。
 

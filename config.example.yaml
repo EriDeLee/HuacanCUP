@@ -10,7 +10,9 @@ tools:
   kicad_share: .tools/kicad/share/kicad
   # KiCad 自带的 ngspice 共享库（ADR-0003）
   ngspice_lib: .tools/kicad/bin/ngspice.dll
-  freerouting: .tools/freerouting/freerouting-cli.exe
+  # Freerouting Java 版（免 Java 版有崩溃 bug，ADR-0004）
+  freerouting_java: .tools/jre-25/jdk-25.0.5+8-jre/bin/java.exe
+  freerouting_jar: .tools/freerouting/freerouting-2.5.0.jar
   krt_python: .tools/venv-krt/Scripts/python.exe
   krt_route: .tools/KiCadRoutingTools/py_router/route.py
   timeouts:

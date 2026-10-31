@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+from typing import Any
+
+Node = list[Any]
 
 _TOKEN = re.compile(r'\s*(?:(\()|(\))|"((?:[^"\\]|\\.)*)"|([^\s()"]+))')
 _ESCAPE = re.compile(r"\\(.)")
@@ -12,8 +15,8 @@ def _unescape(text: str) -> str:
     return _ESCAPE.sub(lambda m: {"n": "\n", "t": "\t"}.get(m.group(1), m.group(1)), text)
 
 
-def parse(text: str) -> list:
-    stack: list[list] = [[]]
+def parse(text: str) -> Node:
+    stack: list[Node] = [[]]
     pos = 0
     while pos < len(text):
         m = _TOKEN.match(text, pos)
@@ -38,15 +41,19 @@ def parse(text: str) -> list:
     return stack[0]
 
 
-def children(node: list, tag: str) -> list[list]:
+def children(node: Node | None, tag: str) -> list[Node]:
+    if not node:
+        return []
     return [c for c in node[1:] if isinstance(c, list) and c and c[0] == tag]
 
 
-def child(node: list, tag: str) -> list | None:
+def child(node: Node | None, tag: str) -> Node | None:
     found = children(node, tag)
     return found[0] if found else None
 
 
-def value(node: list, tag: str, default: str = "") -> str:
+def value(node: Node | None, tag: str, default: str = "") -> str:
     found = child(node, tag)
-    return found[1] if found and len(found) > 1 else default
+    if found and len(found) > 1 and isinstance(found[1], str):
+        return found[1]
+    return default

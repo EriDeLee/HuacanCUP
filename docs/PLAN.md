@@ -49,7 +49,7 @@
 | 本地 GPU | **只跑向量模型**（数据手册与历史设计检索） | 用户决定 |
 | 存储 | **只用文件**：JSON / JSONL / Markdown / `.npy`。不建数据库服务 | 用户不想碰数据库；可审计、可 git 追踪 |
 | 电路 IR | 自定义 `design.json`（见 §5） | 便于确定性校验、diff、补丁；与具体 EDA 解耦 |
-| 原理图生成 | **SKiDL** `generate_schematic()`（支持 KiCad 6–10，自带布局布线；层次化子电路→多页） | 已核实 |
+| 原理图生成 | **SKiDL** `generate_schematic()`（SKiDL 3.0 把布局布线交给 schematizer；层次化子电路→多页） | ADR-0009：大电路要开 `auto_stub`，不连线的元件会让它崩溃 |
 | PCB 生成 | **自写 `eda_agent/kicad_side/board_build.py`**（kicad-cli 导出的网表→`.kicad_pcb`，在 KiCad 自带 Python 里调 `pcbnew`）；kinet2pcb 在 Windows 上不可用 | ADR-0007 |
 | 布线 | **Freerouting 2.5.0（Java 版）与 KiCadRoutingTools v0.23.7**，M0 实测后二选一；DSN 导出 / SES 导回走 `pcbnew.ExportSpecctraDSN` / `ImportSpecctraSES` | ADR-0004 |
 | ERC/DRC/导出 | **kicad-cli**（KiCad 10.0.8，解压版）：`sch erc --format json --exit-code-violations`、`pcb drc --format json --schematic-parity`、`pcb export gerbers/drill/pos/step/glb`、`pcb render` | ADR-0002 |
@@ -407,9 +407,9 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 
 - [x] 所选 KiCad 版本下，无界面 DSN 导出 / SES 导入的可用方法 —— KiCad 10.0.8 用 `pcbnew.ExportSpecctraDSN` / `ImportSpecctraSES`，LED 板实测导回后 DRC 0 错误（ADR-0004）
 - [x] `kicad-cli` 是否可导出 GLB（否则 STEP→GLB 转换方案）—— `pcb export glb` 可用，冒烟已生成 board.glb（ADR-0002）
-- [ ] SKiDL `generate_schematic` 在 KiCad 9/10 下对中等规模电路的效果
+- [ ] SKiDL `generate_schematic` 在 KiCad 9/10 下对中等规模电路的效果 —— 已实测：默认模式只适合很小的电路，`auto_stub` 可画 50 个元件的单页，不连线的元件会让它崩溃；可读性等用户看图（ADR-0009）
 - [x] kinet2pcb 与所选 KiCad 版本的 `pcbnew` 模块兼容性 —— Windows 上 import 即报错，改用自写建板脚本（ADR-0007）
-- [ ] 两个布线器在 30 个以上元件的板子上的对比（ADR-0004）
+- [x] 两个布线器在 30 个以上元件的板子上的对比 —— pic_programmer：两者都全部连通；Freerouting 2 个 DRC 错误、KRT 6 个，都与铜层文字有关（ADR-0004）；选哪个等用户定
 - [ ] embedding 模型与接口格式（用户的云 GPU 只暴露一个 API 端口）
 - [ ] 协创者号平台项目展示网站的提交格式（仓库 + Demo URL 的具体要求）
 - [ ] HWE-Bench 作者回复

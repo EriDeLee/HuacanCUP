@@ -51,7 +51,6 @@ def sandbox_env(tools: ToolsConfig, extra: Mapping[str, str] | None = None) -> d
             PATH=os.pathsep.join(
                 [
                     str(tools.kicad_cli.parent),
-                    str(tools.freerouting.parent),
                     rf"{system_root}\System32",
                     system_root,
                     rf"{system_root}\System32\WindowsPowerShell\v1.0",

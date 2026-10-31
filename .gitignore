@@ -3,7 +3,6 @@
 
 # Python 环境与缓存
 venv/
-venv-kicad/
 __pycache__/
 *.pyc
 .pytest_cache/

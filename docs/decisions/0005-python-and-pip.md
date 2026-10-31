@@ -11,7 +11,7 @@
    pip 缓存放在 `venv\.pipcache`（`venv\pip.ini`）。
 3. 需要 `import pcbnew` 的步骤（建板、Specctra 导出导回）放在 `eda_agent/kicad_side/`，
    用 KiCad 自带的 `python.exe` 单独起进程运行，只用标准库和 pcbnew，不往 KiCad 的 Python 里装任何包。
-   不用 kinet2pcb 之后（ADR-0007），原先为它准备的 `venv-kicad\` 已经用不上。
+   不用 kinet2pcb 之后（ADR-0007），原先为它准备的 `venv-kicad\` 用不上了，经用户同意已删除。
 
 ## 原因与后果
 

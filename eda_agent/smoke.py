@@ -31,7 +31,7 @@ from eda_agent.ir.models import load_design
 from eda_agent.tools.kicad_cli import KicadCli
 from eda_agent.tools.kicad_python import run_kicad_script
 from eda_agent.tools.routers import freerouting_route, krt_route
-from eda_agent.tools.runner import run_tool
+from eda_agent.tools.runner import ToolResult, run_tool
 from eda_agent.tools.sandbox import sandbox_env
 from eda_agent.trace import TraceWriter
 
@@ -73,10 +73,10 @@ class Smoke:
         )
         return report
 
-    def _kicad_script(self, script: str, args: list[str | Path], cwd: Path) -> str:
+    def _kicad_script(self, script: str, args: list[str | Path], cwd: Path) -> ToolResult:
         return run_kicad_script(
             self.tools, script, args, cwd=cwd, log_dir=self.logs, trace=self.trace
-        ).stdout
+        )
 
     def schematic(self) -> Path:
         out_dir = self.run_dir / "kicad"
@@ -117,7 +117,7 @@ class Smoke:
             netlist = sch.with_suffix(".net")
             self.kicad.sch_export_netlist(sch, netlist)
             pcb = sch.with_suffix(".kicad_pcb")
-            out = self._kicad_script(
+            built = self._kicad_script(
                 "board_build.py",
                 [
                     "--netlist",
@@ -131,7 +131,7 @@ class Smoke:
                 ],
                 cwd=sch.parent,
             )
-            detail.update(json.loads(out.strip().splitlines()[-1]))
+            detail.update(built.last_json())
         return pcb
 
     def _copy_project(self, pcb: Path, router: str) -> Path:
