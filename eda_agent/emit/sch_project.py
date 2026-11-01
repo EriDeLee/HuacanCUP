@@ -219,6 +219,11 @@ def name_w(nets: list[str]) -> float:
     return max((len(display_name(n)) for n in nets), default=0) * CHAR_W
 
 
+def text_w(text: str) -> float:
+    """估算一行文字的宽度（mm）：中文这类全角字大约是西文字母的 1.6 倍宽。"""
+    return sum(CHAR_W * (1.6 if ord(ch) >= 0x2E80 else 1.0) for ch in text)
+
+
 def _root_sheet(
     design: Design, order: list[str], ports: dict[str, dict[str, str]], purposes: dict[str, str]
 ) -> tuple[Drawing, RootExtras]:
@@ -246,8 +251,10 @@ def _root_sheet(
     page_no = {key: str(i + 2) for i, key in enumerate(order)}
     for col in columns:
         left_ext = max(geometry[k][2] for k in col)
-        width = max(geometry[k][0] for k in col)
         right_ext = max(geometry[k][3] for k in col)
+        # 框下面那行「这一块做什么」可能比框还宽，这一列要留够
+        width = max(max(geometry[k][0] + right_ext, text_w(purposes.get(k, ""))) for k in col)
+        right_ext = 0.0
         sx = snap(x + left_ext)
         y = PAGE_MARGIN + GRID * 4
         for key in col:
