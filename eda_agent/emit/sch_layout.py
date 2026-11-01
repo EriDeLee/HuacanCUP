@@ -1122,11 +1122,17 @@ def _anchor_index(ctx: Ctx, ref: str, plans: list[HubPlan]) -> int | None:
 
 
 def _with_satellites(hub: Prims, satellites: list[Prims]) -> Prims:
-    """落单的元件在主芯片这一团的正下方排成一行，左边对齐。"""
+    """落单的元件在主芯片这一团的下面排成一行，以主芯片为中心。
+
+    放在整团的最下沿以下，所以左右怎么摆都不会压到这一团里已有的东西。
+    """
     if not satellites:
         return hub
-    x0, _, _, y1 = hub.bbox()
-    x = x0
+    _, _, _, y1 = hub.bbox()
+    chip = hub.symbols[0].box  # layout_hub 把主芯片放在第一个
+    widths = [sat.bbox()[2] - sat.bbox()[0] for sat in satellites]
+    total = sum(widths) + GRID * 4 * (len(satellites) - 1)
+    x = snap((chip[0] + chip[2]) / 2 - total / 2)
     y = y1 + GRID * 4
     merged = Prims()
     merged.extend(hub)
