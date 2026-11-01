@@ -18,12 +18,25 @@ skip="kicad-doc-en-"
 if [ "${KICAD_WITH_DEMOS:-0}" != 1 ]; then
   skip="kicad-demos- $skip"
 fi
-mark "安装（不装：$skip）"
-# 2026-11-01 的一次运行里 Ubuntu 镜像卡住，15 分钟只下了一半（同时另外三台机器正常）。
-# 一个连接 20 秒没动静就断开重试，最多重试 5 次，不让一个卡住的下载拖住整次运行。
+# 先只下载、再安装。2026-11-01 有两次运行下载卡住 15 分钟（同时别的机器正常），
+# 连接一直开着、只是极慢，所以每个连接的超时管不住。下载单独做，每次最多 5 分钟、最多 3 次，
+# 没下完的文件下次接着下；只下载时打断是安全的，安装到一半被打断才会弄坏软件包数据库。
 # shellcheck disable=SC2086 # $skip 故意按空格拆成多个包名
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --install-recommends \
-  -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=5 \
+for attempt in 1 2 3; do
+  mark "下载第 $attempt 次（不装：$skip）"
+  if sudo timeout 300 apt-get install --download-only -y --install-recommends \
+    -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=5 \
+    kicad xvfb libngspice0 $skip; then
+    break
+  fi
+  if [ "$attempt" = 3 ]; then
+    mark "下载 3 次都没完成"
+    exit 1
+  fi
+done
+mark "安装（文件都已下载，不再联网）"
+# shellcheck disable=SC2086
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --install-recommends --no-download \
   kicad xvfb libngspice0 $skip
 mark "检查"
 kicad-cli version

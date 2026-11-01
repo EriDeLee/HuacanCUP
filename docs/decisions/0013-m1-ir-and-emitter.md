@@ -121,8 +121,10 @@ JSON Schema 由模型导出（`python tasks.py schemas`），`tests/test_ir.py` 
   usb_c_5v 原来用 16 针 USB-C 座，它的定位孔离焊盘 0.19 mm，小于板子默认的 0.25 mm 孔间距，换成 6 针「仅供电」座后 DRC 0 错误。
 - rs485_transceiver 剩 1 个警告：MAX485E 是三层派生符号，展平后 KiCad 仍认为和库里的不完全一样，原因没查明。只是警告，不影响 ERC 判定。
 - overcurrent_cutoff 只是画图的样例，电路本身没有仿真验证（M2 才有仿真关），它的说明里写了。
-- 冒烟：LED（`smoke-led-20261101-085804`）ERC 0 错误 0 警告（SKiDL 时是 5 个警告），两个布线器 DRC 都 0 错误；
-  多页的 attiny85_blink（`smoke-attiny85_blink-20261101-085220`）两个布线器 DRC 也都 0 错误。
+- 冒烟：LED（`smoke-led-20261101-085804`）ERC 0 错误 0 警告（SKiDL 时是 5 个警告），两个布线器 DRC 都 0 错误。
+- 比 M1 标准多走一步：10 个样例全部走完冒烟的整条链路（原理图、ERC、网表一致、建板、fastroute 和 KRT 各布一次、DRC、
+  导出制造文件），**20 次布线全部 DRC 0 错误、0 条没连上**（`.tools/audit/smoke_all.py`，运行目录 `runs/m1-route-all/`）。
+  DRC 只有警告：ldo_3v3、overcurrent_cutoff 各 2 个。
 
 ### 已知限制
 

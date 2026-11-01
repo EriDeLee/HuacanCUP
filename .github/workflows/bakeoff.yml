@@ -116,7 +116,8 @@ jobs:
           } 2>&1 | tee ci-logs/2-router.log
 
       - name: 等 KiCad 装完
-        run: bash .github/scripts/bg.sh wait kicad 900 2>&1 | tee ci-logs/4-kicad.log
+        # 下载最多重试 3 次、每次 5 分钟（install_kicad.sh），所以最多等 20 分钟
+        run: bash .github/scripts/bg.sh wait kicad 1200 2>&1 | tee ci-logs/4-kicad.log
 
       - name: 对比用的 5 块板都在
         run: |

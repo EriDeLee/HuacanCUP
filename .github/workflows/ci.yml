@@ -111,7 +111,8 @@ jobs:
           } 2>&1 | tee ci-logs/6-krt-check.log
 
       - name: 等 KiCad 装完
-        run: bash .github/scripts/bg.sh wait kicad 900 2>&1 | tee ci-logs/7-kicad.log
+        # 下载最多重试 3 次、每次 5 分钟（install_kicad.sh），所以最多等 20 分钟
+        run: bash .github/scripts/bg.sh wait kicad 1200 2>&1 | tee ci-logs/7-kicad.log
 
       - name: 工具测试 (需要 KiCad)
         run: xvfb-run -a venv/bin/python tasks.py test-tools 2>&1 | tee ci-logs/8-test-tools.log
