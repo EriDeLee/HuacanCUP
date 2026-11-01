@@ -125,6 +125,7 @@ JSON Schema 由模型导出（`python tasks.py schemas`），`tests/test_ir.py` 
 - 比 M1 标准多走一步：10 个样例全部走完冒烟的整条链路（原理图、ERC、网表一致、建板、fastroute 和 KRT 各布一次、DRC、
   导出制造文件），**20 次布线全部 DRC 0 错误、0 条没连上**（`.tools/audit/smoke_all.py`，运行目录 `runs/m1-route-all/`）。
   DRC 只有警告：ldo_3v3、overcurrent_cutoff 各 2 个。
+- Linux 上也通过：GitHub Actions 运行 41262079790（提交 4303a50）的工具测试含这 10 个样例，全部通过。
 
 ### 已知限制
 
