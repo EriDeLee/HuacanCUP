@@ -27,7 +27,7 @@
 | 可编辑 EDA 工程 | `.kicad_pro` / `.kicad_sch` / `.kicad_pcb` | 自写原理图版面引擎（放得下就一页、每个功能块一个方框，放不下才分页；同页信号连成导线，ADR-0011、ADR-0013、ADR-0014），自写建板脚本生成 PCB，fastroute 布线 |
 | 制造文件 | Gerber + 钻孔 zip、坐标文件 | `kicad-cli pcb export gerbers` / `drill` / `pos` |
 | BOM | `bom.csv`（含库存/采购来源、LCSC 编号、单价） | 确定性脚本 |
-| 采购申请 | `purchase_request.json` + 可上传的购物车 CSV | 采购智能体起草，用户在飞书/网页审批 |
+| 采购申请 | `purchase_request.json` + 可上传的购物车 CSV | 采购智能体起草，用户在网页对话里审批 |
 | 3D | `board.step`、渲染图 `renders/*.png`、网页预览 `board.glb`（若可导出） | `kicad-cli pcb export step` / `pcb render` |
 | 仿真报告 | 波形图 + 每条验收标准的数值与结论 | ngspice + 自写测量脚本 |
 | 文档 | `README.md`（原理说明、设计取舍、风险）、`bringup.md`（上电调试步骤与期望读数） | 文档智能体 |
@@ -37,6 +37,7 @@
 - 不自动下单付款。采购最多生成购物车文件 + 审批通过记录。
 - 不承诺高速/射频/高密度板的布线质量（自动布线器能力边界），文档里如实标注。
 - 不针对某一类电路做特化。ZVS 只是演示用例之一。
+- 不接飞书、Discord 等聊天软件：只做网页对话（用户 2026-11-01 决定，ADR-0015）。
 
 ---
 
@@ -55,8 +56,8 @@
 | ERC/DRC/导出 | **kicad-cli**（KiCad 10.0.8，解压版）：`sch erc --format json --exit-code-violations`、`pcb drc --format json --schematic-parity`、`pcb export gerbers/drill/pos/step/glb`、`pcb render` | ADR-0002 |
 | 仿真 | **KiCad 自带的 ngspice-46**（`ngspice.dll`），自写 ctypes 对接、子进程隔离，`.meas` 测量 | ADR-0003 |
 | 元器件目录 | JLCPCB/LCSC 公开目录：`cdfer/jlcpcb-parts-database` 的基础/优选件 CSV（约 3MB）为默认；可选下载其在库件 SQLite 文件（约 1GB）**作为只读数据文件**查询 | 无需凭证 |
-| 聊天入口 | **飞书**（`lark-oapi`，长连接 WebSocket，卡片按钮回调做审批）；Discord 作为第二入口（可选） | 已核实：长连接仅企业自建应用；回调需 3 秒内响应 |
-| 网页 | FastAPI 后端 + 单页前端（运行时间线、产物下载、原理图 SVG、3D 预览） | 比赛要求"供评审交互体验的网址" |
+| 交互入口 | **只做网页对话**：用户在对话里许愿、确认、审批；Agent 把功能以卡片推到对话里，自写渲染引擎展示原理图、3D、波形和报告。不接飞书、Discord | 用户 2026-11-01 决定：纯网页「更好自己写渲染引擎来展示模型成果」（ADR-0015） |
+| 网页 | FastAPI 后端 + 单页前端（对话、运行时间线、产物下载、原理图 SVG、3D 预览） | 比赛要求"供评审交互体验的网址"；也是唯一的交互入口 |
 | 开发环境 | 本机 Windows 原生运行，工具只解压不安装，放在项目内 `.tools/`，外部工具的设置、缓存、临时文件都指到 `.tools/home`；Linux 验证用 GitHub Actions | ADR-0001 |
 | 依赖与任务 | 只用 pip（直接依赖写死版本）；主程序 Python 3.14，用到 pcbnew 的步骤用 KiCad 自带 Python 3.11；`python tasks.py <任务>` 代替 make | ADR-0005、ADR-0006 |
 | 部署 | M6 再装箱：Docker 镜像（KiCad + 布线器 + Python）；部署到协创者号提供的云服务器或自有 VPS | 可复现 |
@@ -66,12 +67,11 @@
 ## 3. 总体架构
 
 ```
-           ┌──────────────┐     ┌──────────────┐
-  用户 ───►│ 飞书 / Discord│     │  网页 (FastAPI)│◄── 评委
-           └──────┬───────┘     └──────┬───────┘
-                  └──────────┬─────────┘
+                       ┌───────────────────┐
+  用户 / 评委 ────────►│ 网页对话 (FastAPI)│  自写渲染引擎：原理图、3D、波形、审批卡片（ADR-0015）
+                       └─────┬─────────────┘
                        ┌─────▼─────┐
-                       │  Gateway  │  统一消息/审批事件 → RunManager
+                       │  Gateway  │  对话消息/审批事件 → RunManager
                        └─────┬─────┘
                        ┌─────▼──────────────────────────────┐
                        │ Orchestrator（状态机 + 回退边 + 预算）│
@@ -97,7 +97,7 @@
 
 ```
 S0 intake        需求智能体：一句话 → spec 草案（含可测验收标准）
-S1 confirm       ★人工：用户在飞书/网页确认或修改 spec → 冻结（记录 sha256）
+S1 confirm       ★人工：用户在网页对话里确认或修改 spec → 冻结（记录 sha256）
 S2 architect     方案智能体：拆功能块、选拓扑、给 2~3 个备选并说明取舍 → 选定一个
 S3 select        选型智能体：每个功能块选具体器件（先查库存，再查目录；读数据手册检索结果）
 S4 schematic     原理图智能体：生成/修改 design.json 的 parts + nets
@@ -109,7 +109,7 @@ S7 layout        PCB：自写建板脚本摆放 → 板框/安装孔/连接器�
 G3 drc           Gate：kicad-cli DRC（含原理图一致性）
    ↺ 失败 → PCB 智能体调整板尺寸/线宽规则/层数/摆放提示 → 重布
 S8 procure       采购智能体：BOM 对比库存，缺件生成采购申请
-S9 approve       ★人工：飞书卡片「批准 / 修改 / 拒绝」
+S9 approve       ★人工：网页对话里的审批卡片「批准 / 修改 / 拒绝」
 S10 package      导出 Gerber/STEP/渲染图/BOM/文档；总审智能体写"风险与未验证项"清单
 S11 bringup      （板子回来后）生成上电步骤 + 每步期望读数（来自仿真）；用户报读数 → 比对 → 偏差诊断 → 修订版
 ```
@@ -119,7 +119,7 @@ S11 bringup      （板子回来后）生成上电步骤 + 每步期望读数（
 - 每次运行有费用上限（美元，默认可配置），`trace.jsonl` 累计；超限暂停并询问。
 - 每个状态结束都把 `design.json` 快照写到 `iterations/NN/`，任何时候可回滚。
 
-**人工节点只有两个必经**（S1、S9）。其余节点在飞书里只推送进度卡片，不打扰。
+**人工节点只有两个必经**（S1、S9）。其余节点在网页对话里只推送进度卡片，不打扰。
 
 ---
 
@@ -264,7 +264,7 @@ runs/<run_id>/
 ## 8. 元器件、库存、采购
 
 - `data/catalog/`：启动脚本下载 JLC 基础/优选件 CSV；可选下载在库件 SQLite（只读文件，用 Python 自带 sqlite3 打开，不起数据库服务）。`parts/catalog.py` 提供 `search(category, params, package, in_stock=True)`。
-- `memory/users/<user_id>/inventory.yaml`：用户库存（MPN 或描述 + 数量 + 位置）。可通过飞书/网页发照片或文字添加，智能体解析后**用户确认才写入**。
+- `memory/users/<user_id>/inventory.yaml`：用户库存（MPN 或描述 + 数量 + 位置）。可在网页对话里发照片或文字添加，智能体解析后**用户确认才写入**。
 - 选型规则：库存满足额定值且封装可装配 → 优先；否则目录件，优先 JLC 基础件 → 优选件 → 扩展件。
 - 采购申请：缺件列表、数量（含损耗）、单价、总价、替代料说明；导出 LCSC/JLC 可上传的 BOM CSV。**审批通过只生成文件和记录，不下单。**
 
@@ -292,27 +292,27 @@ memory/users/<user_id>/
 memory/designs/<run_id>/   通过的设计（README + design.json），供检索复用
 ```
 - 每次运行开始，需求智能体读取 profile + inventory + 最近 history 摘要。
-- 运行结束，编排器追加 history；用户在飞书里说"以后都用 xx"时写入 profile（需用户确认）。
+- 运行结束，编排器追加 history；用户在对话里说"以后都用 xx"时写入 profile（需用户确认）。
 - 这对应赛题第 3 点"长记忆与个性化演进"：演示时展示第二次许愿时系统主动用上库存与焊接偏好。
 
 ---
 
 ## 11. 交互入口
 
-### 11.1 飞书机器人（主入口，对应赛题第 4 点）
-- `lark-oapi` 长连接（企业自建应用；无需公网 IP）。
-- 事件：接收消息 → 新建/继续运行；卡片按钮回调 → 确认 spec、审批采购、选择方案备选。
-- **回调 3 秒内必须返回**：处理函数只把事件放入队列并立即回 toast，实际工作在后台线程/进程执行，完成后主动发新卡片或更新卡片。
-- 卡片类型：spec 确认卡（可编辑字段）、进度卡（状态 + 当前回退次数 + 费用）、方案对比卡、采购审批卡、交付卡（链接到网页产物页）。
+只做网页对话（用户 2026-11-01 决定，ADR-0015）：不接飞书、Discord 等聊天软件。
 
-### 11.2 Discord（第二入口，可选）
-- discord.py，按钮组件对应同样的审批事件。Gateway 层统一事件格式，飞书/Discord/网页共用 RunManager。
+### 11.1 网页对话（唯一入口，对应赛题第 4 点「Agent 将软件功能主动推送到对话框」）
+- 用户在对话里许愿；需要人的时候，Agent 把对应的功能以卡片推到对话里：spec 确认卡（可编辑字段）、方案对比卡、
+  进度卡（状态 + 当前回退次数 + 费用）、采购审批卡、交付卡。
+- 卡片里的原理图、3D、仿真波形、Gate 报告由自写的渲染引擎展示（用户：纯网页「更好自己写渲染引擎来展示模型成果」）。
+- 事件：对话消息 → 新建/继续运行；卡片按钮 → 确认 spec、审批采购、选择方案备选。
+  收到的事件先写进运行目录、马上回应，实际工作在后台执行，完成后推送新卡片或更新卡片；对话不被长任务卡住，重启也不丢。
+- 技术：FastAPI + SSE 推送事件；前端用原生 JS 或轻量框架，3D 用 three.js 加载 GLB（若 KiCad 无法导出 GLB，退回 STEP→GLB 转换或只展示渲染图，见 M0）。
 
-### 11.3 网页（评委入口）
-- 页面：新建许愿 / 运行列表 / 运行详情（时间线：每个智能体发言、每个 Gate 报告、回退箭头）/ 产物（原理图 SVG：`kicad-cli sch export svg`；3D：渲染图 + 可旋转模型）/ 采购审批。
+### 11.2 评委体验（同一个网站）
+- 页面：对话 / 运行列表 / 运行详情（时间线：每个智能体发言、每个 Gate 报告、回退箭头）/ 产物（原理图 SVG：`kicad-cli sch export svg`；3D：渲染图 + 可旋转模型）/ 采购审批。
 - **回放模式**：读取已完成运行的 `trace.jsonl` 按时间重放，无需 API 费用；评委可直接看完整过程。
 - **实时模式**：限流（每 IP 每日次数、每次费用上限），防止被刷费用。
-- 技术：FastAPI + SSE 推送事件；前端用原生 JS 或轻量框架，3D 用 three.js 加载 GLB（若 KiCad 无法导出 GLB，退回 STEP→GLB 转换或只展示渲染图，见 M0）。
 
 ---
 
@@ -322,17 +322,17 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 
 | # | 周 | 内容 | 完成标准 |
 |---|---|---|---|
-| M0 | 11/02–11/08 | **工具链冒烟（本机 `.tools/` + GitHub Actions，ADR-0001）**：KiCad 10.0.8（自带 ngspice）、fastroute / KiCadRoutingTools、SKiDL、lark-oapi 跑通；手写一个 LED+电阻电路走完：IR→原理图→ERC→PCB→布线（DSN→SES 回导，或直接读写 .kicad_pcb）→DRC→Gerber/STEP/GLB/render | `python tasks.py smoke` 全绿。**必须验证并记录**：① 无界面下 DSN 导出与 SES 导入的方法（pcbnew Python API 的 Specctra 导出/导入函数在所选 KiCad 版本是否可用）；② `kicad-cli` 是否支持导出 GLB；③ SKiDL `generate_schematic` 对 30+ 器件电路的可读性；④ 选定 embedding 模型（已推迟到 M4，ADR-0010） |
+| M0 | 11/02–11/08 | **工具链冒烟（本机 `.tools/` + GitHub Actions，ADR-0001）**：KiCad 10.0.8（自带 ngspice）、fastroute / KiCadRoutingTools、SKiDL、lark-oapi 跑通（lark-oapi 2026-11-01 随飞书一起去掉，ADR-0015）；手写一个 LED+电阻电路走完：IR→原理图→ERC→PCB→布线（DSN→SES 回导，或直接读写 .kicad_pcb）→DRC→Gerber/STEP/GLB/render | `python tasks.py smoke` 全绿。**必须验证并记录**：① 无界面下 DSN 导出与 SES 导入的方法（pcbnew Python API 的 Specctra 导出/导入函数在所选 KiCad 版本是否可用）；② `kicad-cli` 是否支持导出 GLB；③ SKiDL `generate_schematic` 对 30+ 器件电路的可读性；④ 选定 embedding 模型（已推迟到 M4，ADR-0010） |
 | M1 | 11/09–11/22 | IR（pydantic + JSON Schema）、JSON Patch 应用器、IR→自写原理图引擎→KiCad 发射器、运行目录与 trace | 10 个手写 IR 样例全部生成可打开的工程 —— **已达到（2026-11-01）**：`examples/` 10 个样例，KiCad 的 ERC、网表一致、原理图与 PCB 一致全过（ADR-0013）；同日又加了分页用的大样例 uno_like_board（ADR-0014） |
 | M2 | 11/23–12/06 | G1/G2/G3 全部 Gate；测试台生成器；收敛重试 | 每条规则有正反单测；5 个手写电路的仿真判定与手算一致 |
 | M3 | 12/07–12/27 | LLM 抽象、各智能体、编排状态机、回退与预算、断点续跑；CLI：`eda-agent run "需求"` | 3 个演示需求在 CLI 端到端跑出交付物（允许人工节点用命令行确认） |
 | M4 | 12/28–01/10 | 目录/库存/采购；数据手册下载+解析+本地向量检索 | 选型结果都带出处页码；缺件生成采购申请 |
-| M5 | 01/11–01/24 | 飞书机器人（卡片审批全流程）、记忆读写；Discord（可选） | 在飞书里从许愿到收到交付卡 |
-| M6 | 01/25–02/07 | 网页（实时+回放）、部署到云服务器、限流；部署镜像里装 TraceMaker 作主用布线器（ADR-0004） | 评委可在网页回放 3 个案例、可实时跑 1 个小案例 |
+| M5 | 01/11–01/24 | 网页对话（许愿、spec 确认卡、方案对比卡、采购审批卡、交付卡）与自写渲染引擎、记忆读写（ADR-0015） | 在网页对话里从许愿到收到交付卡 |
+| M6 | 01/25–02/07 | 网页回放模式、实时模式限流、部署到云服务器；部署镜像里装 TraceMaker 作主用布线器（ADR-0004） | 评委可在网页回放 3 个案例、可实时跑 1 个小案例 |
 | M7 | 02/08–02/21 | 评测：自建对照集 + 基线对比 + 报告；bring-up 流程（S11） | `python tasks.py eval` 一键重跑出表格与图 |
 | M8 | 02/22–03/04 | 海报、演示视频、提交材料、修 bug；03/05 前一天提交 | 提交完成 |
 
-进度落后时的处理顺序（实现先后，不是砍产品范围）：先保证 S0–S10 主链路在 CLI 与网页可跑；飞书卡片的编辑能力、Discord、bring-up、实物测量仪器接入依次后移。
+进度落后时的处理顺序（实现先后，不是砍产品范围）：先保证 S0–S10 主链路在 CLI 与网页可跑；对话卡片的编辑能力、bring-up、实物测量仪器接入依次后移。
 
 ---
 
@@ -376,8 +376,8 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 │   ├── parts/                catalog, inventory, procurement
 │   ├── retrieval/            datasheet 下载/解析、embed client、numpy 检索
 │   ├── memory/               profile / history / design memory 读写
-│   ├── gateway/              feishu, discord, web 事件统一
-│   └── web/                  FastAPI + static 前端
+│   ├── gateway/              网页对话的消息与审批事件 → RunManager
+│   └── web/                  FastAPI + static 前端（对话、自写渲染引擎）
 ├── embed_server/             本地 GPU embedding 服务
 ├── models/                   SPICE 模型库（注明来源与许可）
 ├── data/                     目录、数据手册、索引（git 忽略，脚本可重建）
@@ -400,7 +400,7 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 | 模型自我评价造成"假通过" | 架构上禁止：只有 Gate 能写 passed |
 | API 费用失控 | 档位分级、每次运行上限、网页实时模式限流、回放模式 |
 | 评委不是电子专家 | 网页时间线把"失败→诊断→修改→通过"可视化；海报只放一张前后对比图与一个数字 |
-| 飞书长连接仅限企业自建应用 | 用自己创建的飞书企业/团队创建自建应用；评委主要走网页 |
+| 赛题第 4 点举例的是飞书、Discord，只做网页对话可能被看作没接现成聊天软件（ADR-0015） | 演示和海报里突出「Agent 把软件功能主动推送到对话框」：spec 确认、方案对比、审批、交付都以卡片出现在网页对话里 |
 | 一人开发进度 | 里程碑每两周可演示；所有外部工具在 M0 一次性打通 |
 
 ---
@@ -416,4 +416,4 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 - [ ] embedding 模型与接口格式（用户的云 GPU 只暴露一个 API 端口）—— 推迟到 M4，用真实数据手册对比后再定（ADR-0010）
 - [ ] 协创者号平台项目展示网站的提交格式（仓库 + Demo URL 的具体要求）
 - [ ] HWE-Bench 作者回复
-- [ ] 飞书自建应用创建与卡片回调权限
+- ~~飞书自建应用创建与卡片回调权限~~ —— 不做飞书（ADR-0015）
