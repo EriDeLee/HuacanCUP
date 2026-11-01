@@ -48,6 +48,8 @@ def check_example(design_path: Path, out: Path, trace: TraceWriter) -> dict[str,
         netlist_gate(emitted.schematic.nets, emitted.netlist),
     ]
     drawings = [(p.key, p.drawing, out / p.file) for p in emitted.schematic.pages]
+    if emitted.schematic.root is not None:  # 分页时根页的框图也查（ADR-0014）
+        drawings.append(("root", emitted.schematic.root, emitted.root))
     for key, drawing, sheet in drawings:
         quality = layout_quality(drawing)
         gates.append(
@@ -71,6 +73,8 @@ def check_example(design_path: Path, out: Path, trace: TraceWriter) -> dict[str,
         "passed": all(g.passed for g in gates),
         "pages": [p.key for p in emitted.schematic.pages],
         "papers": [p.drawing.paper for p in emitted.schematic.pages],
+        # 同名标签连成导线：nets 个网络要连，wired 个全连上，partial 个连上一部分，failed 个没连
+        "routing": {key: drawing.route_stats for key, drawing, _ in drawings},
         "drc_unrouted": drc.counts,
         "gates": {g.gate: asdict(g) | {"findings": g.findings[:8]} for g in gates},
     }
@@ -99,7 +103,11 @@ def main(names: list[str]) -> int:
             json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
         )
         status = "通过" if entry["passed"] else "未通过"
-        print(f"{name:20s} {status}")
+        routing = entry.get("routing", {})
+        wired = " ".join(
+            f"{k}:{s.get('wired', 0)}/{s.get('nets', 0)}" for k, s in routing.items() if s
+        )
+        print(f"{name:20s} {status}  {entry.get('papers', '')}  连成导线 {wired or '-'}")
         if "error" in entry:
             print("    出错：", entry["error"].strip().splitlines()[-1][:300])
             continue

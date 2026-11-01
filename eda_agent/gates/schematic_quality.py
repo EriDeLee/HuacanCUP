@@ -1,6 +1,7 @@
 """版面引擎的两道确定性检查（AGENTS.md 原则 1：通过与否只由这里的代码决定）。
 
-- layout_quality：画出来的图有没有符号互相压住、文字压住符号或别的文字、导线穿过元件本体。
+- layout_quality：画出来的图有没有符号互相压住、文字压住符号或别的文字、导线穿过元件本体、
+  导线从文字上穿过（ADR-0014 加的）。
   导线交叉只计数，不判失败（交叉本身不是错，但数量会写进报告，方便比较版面好坏）。
 - netlist_gate：KiCad 重新导出的网表，和输入的网络逐个对得上；没有拆开的网络，也没有短路。
 """
@@ -70,6 +71,7 @@ def layout_quality(drawing: Drawing) -> GateReport:
                 findings.append({"type": "symbol_overlap", "items": [a.ref, b.ref]})
     texts = [(s.ref, tb) for s in p.symbols for tb in s.text_boxes()]
     texts += [(lb.text, lb.box) for lb in p.labels]
+    texts += [(n.text, n.box) for n in p.notes]
     for name, tb in texts:
         for s in parts:
             if s.ref != name and _overlap(tb, s.box, 0.15):
@@ -83,6 +85,11 @@ def layout_quality(drawing: Drawing) -> GateReport:
         for s in p.symbols:
             if s.core and _overlap(wb, s.core, 0.2) and not _leaves_a_pin(w.a, w.b, s):
                 findings.append({"type": "wire_through_symbol", "items": [s.ref]})
+        # 线从文字上穿过（ADR-0014，用户 2026-11-01 指出 ldo_3v3 的 +3V3 线穿过 U1 的型号）。
+        # 标签的锚点就在线头上，线只碰到它的边，不算穿过。
+        for name, tb in texts:
+            if _overlap(wb, tb, 0.15):
+                findings.append({"type": "wire_through_text", "items": [name]})
     counts = {
         "parts": len(parts),
         "wires": len(p.wires),

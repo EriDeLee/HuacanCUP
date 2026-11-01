@@ -8,12 +8,15 @@
 
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import dataclass, field
 
-from eda_agent.emit.sch_layout import Drawing, Field, SymbolInst, flip_justify
+from eda_agent.emit.sch_layout import Drawing, Field, Line, SymbolInst, flip_justify
 
 FONT = "(font (size 1.27 1.27))"
+ARROW_LEN = 1.8
+ARROW_HALF = 0.7
 
 
 def _f(v: float) -> str:
@@ -76,17 +79,29 @@ class SheetSym:
     pins: tuple[SheetPin, ...] = ()
 
 
-@dataclass(frozen=True)
-class Text:
-    text: str
-    x: float
-    y: float
-
-
 @dataclass
 class RootExtras:
+    """根页上除了 Prims 以外的东西：每个功能块的图纸框。（框下的说明文字在 Prims.notes 里。）"""
+
     sheets: list[SheetSym] = field(default_factory=list)
-    texts: list[Text] = field(default_factory=list)
+
+
+def _polyline(pts: list[tuple[float, float]], ids: _Ids, *, dashed: bool, filled: bool) -> str:
+    xy = " ".join(f"(xy {_f(x)} {_f(y)})" for x, y in pts)
+    fill = " (fill (type outline))" if filled else ""
+    kind = "dash" if dashed else "solid"
+    return f"\t(polyline (pts {xy}) (stroke (width 0) (type {kind})){fill} (uuid {_q(ids.next())}))"
+
+
+def _arrow_head(line: Line) -> list[tuple[float, float]]:
+    """折线最后一段末端的实心三角箭头（尖在最后一点）。"""
+    (ax, ay), (bx, by) = line.pts[-2], line.pts[-1]
+    length = math.hypot(bx - ax, by - ay) or 1.0
+    ux, uy = (bx - ax) / length, (by - ay) / length
+    base = (bx - ux * ARROW_LEN, by - uy * ARROW_LEN)
+    left = (base[0] - uy * ARROW_HALF, base[1] + ux * ARROW_HALF)
+    right = (base[0] + uy * ARROW_HALF, base[1] - ux * ARROW_HALF)
+    return [(bx, by), left, right, (bx, by)]
 
 
 def _property(
@@ -234,12 +249,20 @@ def render_page(
                 f"\t(label {_q(lb.text)} {at}"
                 f" (effects {FONT} (justify {justify})) (uuid {_q(ids.next())}))"
             )
-    if extras is not None:
-        for t in extras.texts:
-            out.append(
-                f"\t(text {_q(t.text)} (exclude_from_sim no) (at {_f(t.x)} {_f(t.y)} 0)"
-                f" (effects {FONT} (justify left top)) (uuid {_q(ids.next())}))"
-            )
+    for note in p.notes:
+        out.append(
+            f"\t(text {_q(note.text)} (exclude_from_sim no) (at {_f(note.x)} {_f(note.y)} 0)"
+            f" (effects {FONT} (justify left top)) (uuid {_q(ids.next())}))"
+        )
+    for fr in p.frames:
+        out.append(
+            f"\t(rectangle (start {_f(fr.x0)} {_f(fr.y0)}) (end {_f(fr.x1)} {_f(fr.y1)})"
+            f" (stroke (width 0) (type dash)) (fill (type none)) (uuid {_q(ids.next())}))"
+        )
+    for ln in p.lines:
+        out.append(_polyline(list(ln.pts), ids, dashed=True, filled=False))
+        if ln.arrow and len(ln.pts) >= 2:
+            out.append(_polyline(_arrow_head(ln), ids, dashed=False, filled=True))
     for inst in p.symbols:
         ref = f"{inst.prefix}{counter.take():03d}" if inst.power else inst.ref
         out.append(_symbol(inst, ids, instance_path, project, ref))

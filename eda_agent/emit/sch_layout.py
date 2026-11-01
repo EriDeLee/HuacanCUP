@@ -162,7 +162,7 @@ class Label:
 
     @property
     def box(self) -> Box:
-        w = max(len(self.text), 1) * CHAR_W
+        w = text_width(self.text)
         if self.shape:  # 层次标签的旗形框比文字长，且上下居中
             w += 2.6
             if self.rot == 180:
@@ -170,7 +170,44 @@ class Label:
             return (self.x, self.y - TEXT_H / 2 - 0.4, self.x + w, self.y + TEXT_H / 2 + 0.4)
         if self.rot == 180:
             return (self.x - w, self.y - TEXT_H - 0.2, self.x, self.y)
+        if self.rot == 90:  # 竖线上的网络名：字从锚点往上写，在线的左边
+            return (self.x - TEXT_H - 0.2, self.y - w, self.x, self.y)
         return (self.x, self.y - TEXT_H - 0.2, self.x + w, self.y)
+
+
+@dataclass(frozen=True)
+class Note:
+    """不带电气意义的文字（功能块的名字和用途、根页上的电源说明）。锚点在文字的左上角。"""
+
+    text: str
+    x: float
+    y: float
+
+    @property
+    def box(self) -> Box:
+        return text_box(self.x, self.y, self.text, "left top")
+
+
+@dataclass(frozen=True)
+class Frame:
+    """圈住一个功能块的虚线方框，不带电气意义。"""
+
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+
+@dataclass(frozen=True)
+class Line:
+    """不带电气意义的虚线折线；arrow 为真时在最后一点画一个实心箭头。"""
+
+    pts: tuple[Point, ...]
+    arrow: bool = False
+
+
+def _move(p: Point, dx: float, dy: float) -> Point:
+    return r4(p[0] + dx), r4(p[1] + dy)
 
 
 @dataclass
@@ -180,6 +217,9 @@ class Prims:
     junctions: list[Point] = field(default_factory=list)
     labels: list[Label] = field(default_factory=list)
     ncs: list[Point] = field(default_factory=list)
+    notes: list[Note] = field(default_factory=list)
+    frames: list[Frame] = field(default_factory=list)
+    lines: list[Line] = field(default_factory=list)
 
     def add_wire(self, a: Point, b: Point) -> None:
         a, b = (r4(a[0]), r4(a[1])), (r4(b[0]), r4(b[1]))
@@ -188,13 +228,17 @@ class Prims:
 
     def extend(self, other: Prims, dx: float = 0.0, dy: float = 0.0) -> None:
         self.symbols += [s.translated(dx, dy) for s in other.symbols]
-        self.wires += [
-            Wire((r4(w.a[0] + dx), r4(w.a[1] + dy)), (r4(w.b[0] + dx), r4(w.b[1] + dy)))
-            for w in other.wires
-        ]
-        self.junctions += [(r4(x + dx), r4(y + dy)) for x, y in other.junctions]
+        self.wires += [Wire(_move(w.a, dx, dy), _move(w.b, dx, dy)) for w in other.wires]
+        self.junctions += [_move(j, dx, dy) for j in other.junctions]
         self.labels += [replace(lb, x=r4(lb.x + dx), y=r4(lb.y + dy)) for lb in other.labels]
-        self.ncs += [(r4(x + dx), r4(y + dy)) for x, y in other.ncs]
+        self.ncs += [_move(n, dx, dy) for n in other.ncs]
+        self.notes += [replace(n, x=r4(n.x + dx), y=r4(n.y + dy)) for n in other.notes]
+        self.frames += [
+            Frame(r4(f.x0 + dx), r4(f.y0 + dy), r4(f.x1 + dx), r4(f.y1 + dy)) for f in other.frames
+        ]
+        self.lines += [
+            Line(tuple(_move(p, dx, dy) for p in ln.pts), ln.arrow) for ln in other.lines
+        ]
 
     def boxes(self) -> list[Box]:
         out: list[Box] = []
@@ -207,6 +251,11 @@ class Prims:
             for w in self.wires
         ]
         out += [(x - 0.9, y - 0.9, x + 0.9, y + 0.9) for x, y in self.ncs]
+        out += [n.box for n in self.notes]
+        out += [(f.x0, f.y0, f.x1, f.y1) for f in self.frames]
+        for ln in self.lines:
+            xs, ys = [p[0] for p in ln.pts], [p[1] for p in ln.pts]
+            out.append((min(xs) - 0.8, min(ys) - 0.8, max(xs) + 0.8, max(ys) + 0.8))
         return out
 
     def bbox(self) -> Box:
@@ -225,13 +274,18 @@ def _shift(box: Box, dx: float, dy: float) -> Box:
     return (r4(box[0] + dx), r4(box[1] + dy), r4(box[2] + dx), r4(box[3] + dy))
 
 
+def text_width(text: str) -> float:
+    """估算一行文字的宽度（mm）：中文这类全角字大约是西文字母的 1.6 倍宽。"""
+    return sum(CHAR_W * (1.6 if ord(ch) >= 0x2E80 else 1.0) for ch in text) or CHAR_W
+
+
 def text_box(x: float, y: float, text: str, justify: str = "") -> Box:
     """KiCad 的对齐：left / right 是锚点在文字的左 / 右端；
 
     top / bottom 是锚点在文字的上 / 下沿；不写是居中。
     """
     words = justify.split()
-    w = max(len(text), 1) * CHAR_W
+    w = text_width(text)
     x0 = x if "left" in words else x - w if "right" in words else x - w / 2
     if "top" in words:
         y0 = y - 0.1
@@ -468,7 +522,26 @@ def build_ctx(parts: list[PartSpec], nets: list[NetSpec], lib_dirs: tuple[Path, 
     return ctx
 
 
-def build_chain(ctx: Ctx, hub: str, pin: Pin, claimed: set[str], *, steps_ok: bool = True) -> Chain:
+_OPPOSITE = {"left": "right", "right": "left", "top": "bottom", "bottom": "top"}
+
+
+def _loops_back(ctx: Ctx, hub: str, sides: dict[str, str], from_side: str, net: str) -> bool:
+    """这个网络是不是接回同一个芯片单元对面那一侧的引脚（比如运放的反馈电阻：从反相输入接到输出）。"""
+    far = _OPPOSITE.get(from_side, "")
+    return any(r == hub and sides.get(q) == far for r, q in ctx.members[net])
+
+
+def build_chain(
+    ctx: Ctx,
+    hub: str,
+    pin: Pin,
+    claimed: set[str],
+    *,
+    steps_ok: bool = True,
+    sides: dict[str, str] | None = None,
+) -> Chain:
+    """sides：这个单元每个引脚在哪一侧。给了的话，接回对面那一侧引脚的串联元件不放进链里：
+    它单独成一团，导线绕过芯片把环接上（ADR-0014，lm358_amp 的反馈电阻）。"""
     net = ctx.net_of.get((hub, pin.number))
     chain = Chain(hub, pin.number, [], End("nc"))
     if net is None:
@@ -477,6 +550,7 @@ def build_chain(ctx: Ctx, hub: str, pin: Pin, claimed: set[str], *, steps_ok: bo
         chain.end = End("power", net)
         return chain
     entry = (hub, pin.number)
+    from_side = sides.get(pin.number, "") if sides else ""
     cur = net
     while True:
         shunts: list[Shunt] = []
@@ -494,6 +568,8 @@ def build_chain(ctx: Ctx, hub: str, pin: Pin, claimed: set[str], *, steps_ok: bo
                 rest += 1
             elif ctx.kind(onet) != "signal":
                 shunts.append(Shunt(ref, number, other.number, onet))
+            elif sides and _loops_back(ctx, hub, sides, from_side, onet):
+                rest += 1
             else:
                 series.append(Series(ref, number, other.number))
         if shunts:
@@ -702,8 +778,12 @@ def _draw_shunt(ctx: Ctx, p: Prims, sh: Shunt, x: float, d: int) -> float:
     return max(abs(f.x - x) + len(f.text) * CHAR_W for f in sym.fields if not f.hide)
 
 
-def render_lane(ctx: Ctx, chain: Chain, d: int) -> Prims:
-    """把一条链画成横线，起点在 (0, 0)，d = +1 向右、-1 向左。"""
+def render_lane(ctx: Ctx, chain: Chain, d: int, first_tap: float = STUB) -> Prims:
+    """把一条链画成横线，起点在 (0, 0)，d = +1 向右、-1 向左。
+
+    first_tap：第一个并联元件离起点多远。从芯片上下两边拐出来的链用得长一些，
+    让挂下来的元件离开芯片顶上（或底下）别的引脚的电源符号（ne555_astable 的 C2，用户 2026-11-01）。
+    """
     p = Prims()
     u = 0.0
     last = 0.0
@@ -724,7 +804,9 @@ def render_lane(ctx: Ctx, chain: Chain, d: int) -> Prims:
                 else:
                     # 串联元件的数值文字在它下面，紧跟着挂下来的并联元件要留出一段导线
                     after_series = i > 0 and isinstance(chain.steps[i - 1], Series)
-                    u = max(u + (STUB if after_series else 0.0), last, STUB)
+                    u = max(
+                        u + (STUB if after_series else 0.0), last, first_tap if i == 0 else STUB
+                    )
                 wire_to(u)
                 if more or k < len(step.shunts) - 1:
                     p.junctions.append((r4(d * u), 0.0))
@@ -782,8 +864,10 @@ def _hub_fields(sdef: SymbolDef, ref: str, value: str, rot: int, mirror: bool) -
 def layout_hub(ctx: Ctx, plan: HubPlan) -> Prims:
     sdef, part = ctx.syms[plan.ref].for_unit(plan.unit), ctx.parts[plan.ref]
     if plan.ref in ctx.passive:
-        core = make_symbol(plan.ref, sdef, part.value, "", 0.0, 0.0, plan.rot).core
-        fields = _passive_fields(plan.ref, part.value, 0.0, 0.0, core, False, 1)
+        probe = make_symbol(plan.ref, sdef, part.value, "", 0.0, 0.0, plan.rot)
+        a, b = list(probe.pins.values())[:2]
+        horizontal = abs(a[1] - b[1]) < 1e-6
+        fields = _passive_fields(plan.ref, part.value, 0.0, 0.0, probe.core, horizontal, 1)
     else:
         fields = _hub_fields(sdef, plan.ref, part.value, plan.rot, plan.mirror)
     hub = make_symbol(
@@ -807,7 +891,94 @@ def layout_hub(ctx: Ctx, plan: HubPlan) -> Prims:
     _lay_horizontal(ctx, p, groups["right"], 1)
     _lay_vertical(ctx, p, groups["top"], -1, hub.box)
     _lay_vertical(ctx, p, groups["bottom"], 1, hub.box)
+    if plan.ref not in ctx.passive:
+        _fix_hub_fields(p)
     return p
+
+
+def _overlap(a: Box, b: Box, shrink: float = 0.05) -> bool:
+    return (
+        a[0] + shrink < b[2] - shrink
+        and b[0] + shrink < a[2] - shrink
+        and a[1] + shrink < b[3] - shrink
+        and b[1] + shrink < a[3] - shrink
+    )
+
+
+def _pin_lines(s: SymbolInst) -> list[Box]:
+    """符号自己的引脚线（从引脚端点到本体边上）。"""
+    if s.core is None:
+        return []
+    out = []
+    for number, (px, py) in s.pins.items():
+        dx, dy = s.pin_dirs.get(number, (0.0, 0.0))
+        if dx:
+            ix = s.core[0] if dx < 0 else s.core[2]
+            out.append((min(px, ix), py - 0.15, max(px, ix), py + 0.15))
+        elif dy:
+            iy = s.core[1] if dy < 0 else s.core[3]
+            out.append((px - 0.15, min(py, iy), px + 0.15, max(py, iy)))
+    return out
+
+
+def _fix_hub_fields(p: Prims) -> None:
+    """主芯片的位号和型号默认照库里的位置写；压到导线、别的符号或文字时，换到本体上方或下方的空处。
+
+    ADR-0014：ldo_3v3 的 +3V3 导线从 AMS1117-3.3 的型号文字上穿过（用户 2026-11-01 指出）。
+    依次试：库里的位置 → 叠放在本体左上 / 右上（往上挪几格）→ 叠放在本体左下 / 右下。
+    """
+    hub = p.symbols[0]
+    shown = {f.name: f for f in hub.fields if not f.hide}
+    if not shown or hub.core is None:
+        return
+    obstacles: list[Box] = [
+        (min(w.a[0], w.b[0]), min(w.a[1], w.b[1]), max(w.a[0], w.b[0]), max(w.a[1], w.b[1]))
+        for w in p.wires
+    ]
+    for s in p.symbols[1:]:
+        obstacles.append(s.box)
+        obstacles += s.text_boxes()
+    obstacles += [lb.box for lb in p.labels]
+    obstacles += [(x - 0.9, y - 0.9, x + 0.9, y + 0.9) for x, y in p.ncs]
+    obstacles += _pin_lines(hub)
+    obstacles.append(hub.core)
+
+    def clear(fields: list[Field]) -> bool:
+        boxes = [text_box(f.x, f.y, f.text, f.justify) for f in fields if not f.hide]
+        if any(_overlap(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1 :]):
+            return False
+        return not any(_overlap(tb, ob) for tb in boxes for ob in obstacles)
+
+    if clear(hub.fields):
+        return
+    x0, y0, x1, y1 = hub.core
+    order = [n for n in ("Reference", "Value") if n in shown]
+    pitch = 1.8  # 两行字的行距
+
+    def stacked(x: float, justify: str, near_y: float, step: float) -> list[Field]:
+        """near_y 是贴着本体的那一行。
+
+        往上叠（step < 0）时型号贴着本体、位号在上；往下叠时位号贴着本体。
+        """
+        names = order[::-1] if step < 0 else order
+        out = [f for f in hub.fields if f.hide]
+        for k, name in enumerate(names):
+            out.append(replace(shown[name], x=r4(x), y=r4(near_y + step * k), justify=justify))
+        return out
+
+    candidates: list[list[Field]] = []
+    for k in range(5):
+        top = y0 - GRID - k * GRID
+        candidates.append(stacked(x0, "left", top, -pitch))
+        candidates.append(stacked(x1, "right", top, -pitch))
+    for k in range(5):
+        bottom = y1 + GRID + k * GRID
+        candidates.append(stacked(x0, "left", bottom, pitch))
+        candidates.append(stacked(x1, "right", bottom, pitch))
+    for fields in candidates:
+        if clear(fields):
+            p.symbols[0] = replace(hub, fields=fields)
+            return
 
 
 @dataclass
@@ -853,11 +1024,54 @@ def _bus_unit(ctx: Ctx, run: list[tuple[Chain, float, float]], d: int) -> _Unit:
     return _Unit(ys, run[0][1], ys[0], -box[1], span + 0.2, bus_net=net, pinned=True)
 
 
+def _facing_pair(ctx: Ctx, upper: Chain, lower: Chain, gap: float) -> bool:
+    """相邻两个直接接电源的引脚，上面的接地、下面的接电源：照常画的话地符号往下、电源符号往上，
+    两个符号会面对面挤在一起（overcurrent_cutoff 的 U1B，用户 2026-11-01 指出）。"""
+    direct = all(c.end.kind == "power" and not c.steps for c in (upper, lower))
+    return (
+        direct
+        and gap <= 2 * STUB + 1e-6
+        and ctx.kind(upper.end.net) == "ground"
+        and ctx.kind(lower.end.net) != "ground"
+    )
+
+
+def _facing_lanes(ctx: Ctx, upper: Chain, lower: Chain, d: int) -> tuple[Prims, Prims]:
+    """面对面的那一对换个画法，两条线都不用挪：上面那根拉长，地符号挂在最外头；
+    下面那根先往下拐，再往外，电源符号放在它下面、箭头朝上。"""
+    up = Prims()
+    far = 5 * STUB
+    up.add_wire((0.0, 0.0), (d * far, 0.0))
+    up.add_wire((d * far, 0.0), (d * far, STUB))
+    up.symbols.append(_power_symbol(ctx, upper.end.net, d * far, STUB))
+    low = Prims()
+    low.add_wire((0.0, 0.0), (d * STUB, 0.0))
+    low.add_wire((d * STUB, 0.0), (d * STUB, 2 * STUB))
+    low.add_wire((d * STUB, 2 * STUB), (d * 3 * STUB, 2 * STUB))
+    low.symbols.append(_power_symbol(ctx, lower.end.net, d * 3 * STUB, 2 * STUB))
+    return up, low
+
+
 def _units(ctx: Ctx, items: list[tuple[Chain, float, float]], d: int, merge: bool) -> list[_Unit]:
     units: list[_Unit] = []
+    special: dict[int, Prims] = {}
+    uppers: set[int] = set()
+    for k in range(len(items) - 1):
+        (upper, ux, uy), (lower, lx, ly) = items[k], items[k + 1]
+        if k not in special and abs(ux - lx) < 1e-6 and _facing_pair(ctx, upper, lower, ly - uy):
+            special[k], special[k + 1] = _facing_lanes(ctx, upper, lower, d)
+            uppers.add(k)
     i = 0
     while i < len(items):
         ch, px, py = items[i]
+        if i in special:
+            lane = special[i]
+            b = lane.bbox()
+            # 上面那根的地符号挂在下面那根够不着的最外头，排上下位置时只算它那根横线
+            down = 0.2 if i in uppers else b[3]
+            units.append(_Unit([py], px, py, -b[1], down, lane=lane, chain=ch))
+            i += 1
+            continue
         run = [items[i]]
         if merge and ch.end.kind == "power" and not ch.steps:
             for nxt in items[i + 1 :]:
@@ -881,13 +1095,18 @@ def _units(ctx: Ctx, items: list[tuple[Chain, float, float]], d: int, merge: boo
     return units
 
 
+def _direct_power(u: _Unit) -> bool:
+    return u.chain is not None and u.chain.end.kind == "power" and not u.chain.steps
+
+
 def _stack(units: list[_Unit]) -> list[float] | None:
     """每个单位的竖直位置：互相不压住，并且离各自引脚尽量近（加权最小二乘）。"""
     n = len(units)
     sep = [0.0] + [ceil_grid(units[k - 1].down + units[k].up + GAP) for k in range(1, n)]
     cum = [sum(sep[: k + 1]) for k in range(n)]
     z = [units[k].anchor - cum[k] for k in range(n)]
-    w = [1e6 if units[k].pinned else 1.0 for k in range(n)]
+    # 直接接电源的引脚尽量不挪（电源符号就贴在引脚线头上），让带元件的链去拐弯（用户 2026-11-01）
+    w = [1e6 if u.pinned else 20.0 if _direct_power(u) else 1.0 for u in units]
     base = _isotonic(z, w)
     v = [snap(base[k] + cum[k]) for k in range(n)]
     for k in range(1, n):
@@ -954,6 +1173,8 @@ def _lay_vertical(
     straight = [t for t in items if t[0].end.kind == "power" and not t[0].steps]
     turning = [t for t in items if t not in straight]
     straight.sort(key=lambda t: t[1])
+    all_x = [t[1] for t in items]
+    cx = (hub_box[0] + hub_box[2]) / 2
     # 紧挨着、接同一个电源的引脚合成一个符号
     groups: list[list[tuple[Chain, float, float]]] = []
     for t in straight:
@@ -966,32 +1187,62 @@ def _lay_vertical(
         else:
             groups.append([t])
     for g in groups:
-        ends = [(px, r4(py + s * STUB)) for _, px, py in g]
+        net = g[0][0].end.net
+        # 电源箭头一律朝上、地一律朝下（用户 2026-11-01）。引脚朝向和符号方向相反时（比如电源接在
+        # 下面的引脚上），线先多走一段，再拐到外侧放符号，而不是把符号倒过来画。
+        natural = (ctx.kind(net) == "ground") == (s > 0)
+        reach = STUB if natural else 2 * STUB
+        ends = [(px, r4(py + s * reach)) for _, px, py in g]
         for (_, px, py), end in zip(g, ends, strict=True):
             p.add_wire((px, py), end)
         if len(g) > 1:
             p.add_wire(ends[0], ends[-1])
             p.junctions += ends[1:-1]
-        mid = ends[
-            min(
-                range(len(ends)),
-                key=lambda k: abs(ends[k][0] - sum(e[0] for e in ends) / len(ends)),
-            )
-        ]
-        kind = ctx.kind(g[0][0].end.net)
-        flip = (kind == "ground" and s < 0) or (kind != "ground" and s > 0)
-        p.symbols.append(_power_symbol(ctx, g[0][0].end.net, mid[0], mid[1], 180 if flip else 0))
+        if natural:
+            mid = ends[
+                min(
+                    range(len(ends)),
+                    key=lambda k: abs(ends[k][0] - sum(e[0] for e in ends) / len(ends)),
+                )
+            ]
+            p.symbols.append(_power_symbol(ctx, net, mid[0], mid[1]))
+            continue
+        xs = [e[0] for e in ends]
+        outward = 1 if sum(xs) / len(xs) >= cx else -1
+        for o in (outward, -outward):
+            edge_x = max(xs) if o > 0 else min(xs)
+            jx = r4(edge_x + o * 2 * STUB)
+            lo, hi = sorted((edge_x, jx))
+            if any(lo - 1e-6 <= x <= hi + 2 + 1e-6 and x not in xs for x in all_x):
+                continue
+            ey = ends[0][1]
+            p.add_wire((edge_x, ey), (jx, ey))
+            if len(g) > 1:
+                p.junctions.append((edge_x, ey))
+            p.symbols.append(_power_symbol(ctx, net, jx, ey))
+            break
+        else:  # 两边都有别的引脚挡着：只好照旧把符号倒过来
+            p.symbols.append(_power_symbol(ctx, net, ends[0][0], ends[0][1], 180))
     if not turning:
         return
-    cx = (hub_box[0] + hub_box[2]) / 2
     edge = p.bbox()[3] if s > 0 else p.bbox()[1]
+
+    def direction(t: tuple[Chain, float, float]) -> int:
+        """拐出去的链往人少的一边走：右边还有别的引脚就往左，反之往右；两边一样多再看在中线哪一侧。"""
+        px = t[1]
+        left_n = sum(1 for x in all_x if x < px - 1e-6)
+        right_n = sum(1 for x in all_x if x > px + 1e-6)
+        if right_n != left_n:
+            return -1 if right_n > left_n else 1
+        return 1 if px >= cx else -1
+
     for d in (1, -1):
-        side = [t for t in turning if (t[1] >= cx) == (d > 0)]
+        side = [t for t in turning if direction(t) == d]
         side.sort(key=lambda t: -t[1] * d)  # 离出发方向最近的先画，深度最浅
         prev_y: float | None = None
         prev_ext = 0.0
         for ch, px, py in side:
-            lane = render_lane(ctx, ch, d)
+            lane = render_lane(ctx, ch, d, first_tap=3 * STUB)
             b = lane.bbox()
             up, down = -b[1], b[3]
             if prev_y is None:
@@ -1031,13 +1282,18 @@ def plan_hubs(ctx: Ctx) -> tuple[list[HubPlan], set[str]]:
             if not visible:
                 continue
             mirror = part.role == "connector" and _connector_mirror(ctx, ref, visible)
-            chains = [build_chain(ctx, ref, q, claimed) for q in visible]
+            sides = {q.number: pin_side(q, 0, False) for q in visible}
+            chains = [build_chain(ctx, ref, q, claimed, sides=sides) for q in visible]
             plans.append(HubPlan(ref, 0, mirror, chains, unit))
     return plans, claimed
 
 
 def plan_free(ctx: Ctx, ref: str) -> HubPlan:
-    """不在任何链上的两脚元件：竖着放，旁边的网络靠符号或标签。"""
+    """不在任何链上的两脚元件：一般竖着放，电源在上、地在下，旁边的网络靠符号或标签。
+
+    两头都是电源（比如串在 VBUS 和 +5V 之间的保险丝）或都是地时横着放，两个电源符号都朝上
+    （或都朝下）：竖着放的话下面那个符号只能倒过来画。
+    """
     sdef = ctx.syms[ref]
     a, b = [q for q in sdef.pins if not q.hidden]
     rank = {"power": 0, "signal": 1, "ground": 2}
@@ -1046,9 +1302,13 @@ def plan_free(ctx: Ctx, ref: str) -> HubPlan:
         net = ctx.net_of.get((ref, q.number))
         return rank[ctx.kind(net)] if net else 1
 
+    dead: set[str] = set()
+    if key(a) == key(b) != 1:
+        rot = orient_pins(sdef, a, b, (1.0, 0.0))
+        chains = [build_chain(ctx, ref, q, dead, steps_ok=False) for q in (a, b)]
+        return HubPlan(ref, rot, False, chains)
     top, bottom = (a, b) if key(a) <= key(b) else (b, a)
     rot = orient_pins(sdef, top, bottom, (0.0, 1.0))
-    dead: set[str] = set()
     chains = [build_chain(ctx, ref, q, dead, steps_ok=False) for q in (top, bottom)]
     return HubPlan(ref, rot, False, chains)
 
@@ -1058,6 +1318,8 @@ class Drawing:
     prims: Prims
     paper: str
     libs: dict[str, str]  # 用到的符号：库标识 → 库里的原文
+    # 同名标签连成导线的结果（sch_route.RouteStats 的各项计数）；没连过线是空的
+    route_stats: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -1069,6 +1331,23 @@ class _Cluster:
     nets: set[str]  # 这一团碰到的信号网络（用来排信号流向）
     side: str = ""  # left / right：板边连接器，原理图上也放在那一边
     source: bool = False  # 连接器：信号流向从它开始
+
+
+@dataclass
+class _Proto:
+    """还没画的一团。先算出它碰到哪些信号网络、排在哪一列，再决定主芯片要不要左右翻转，最后才画。"""
+
+    kind: str  # hub / head / free
+    plan: HubPlan | None = None
+    head: HeadPlan | None = None
+    sats: list[str] = field(default_factory=list)
+    # 横跨在芯片单元上方或下方的两脚元件：(位号, 接左侧网络的脚, 接右侧网络的脚, 放在下方)，
+    # 左右按芯片不翻转时算
+    bridges: list[tuple[str, Pin, Pin, bool]] = field(default_factory=list)
+    refs: set[str] = field(default_factory=set)
+    nets: set[str] = field(default_factory=set)
+    side: str = ""
+    source: bool = False
 
 
 def _part_nets(ctx: Ctx, ref: str) -> set[str]:
@@ -1118,6 +1397,10 @@ def _anchor_index(ctx: Ctx, ref: str, plans: list[HubPlan]) -> int | None:
             return None
         found = best_of(same)
         return same[0] if found is None else found
+    if any(ctx.kind(n) == "signal" for n in nets):
+        # 两头接信号的（比如 RS-485 的终端电阻）不贴在芯片下面：单独成一团，按信号流向排，
+        # 导线从两边接进来（ADR-0014）。贴在芯片下面只适合去耦电容这种只接电源的。
+        return None
     return best_of(list(range(len(plans))))
 
 
@@ -1143,38 +1426,207 @@ def _with_satellites(hub: Prims, satellites: list[Prims]) -> Prims:
     return merged
 
 
-def _clusters(ctx: Ctx) -> list[_Cluster]:
+def _plan_nets(ctx: Ctx, plan: HubPlan, sats: list[str]) -> set[str]:
+    """一个主芯片单元这一团真正碰到的信号网络：它这个单元的引脚、链上的元件、贴在旁边的元件。"""
+    nets: set[str] = set()
+    for ch in plan.chains:
+        if (n := ctx.net_of.get((plan.ref, ch.pin))) is not None:
+            nets.add(n)
+        for step in ch.steps:
+            for s in _step_refs(step):
+                nets |= _part_nets(ctx, s.ref)
+    for r in sats:
+        nets |= _part_nets(ctx, r)
+    return {n for n in nets if ctx.kind(n) == "signal"}
+
+
+def _bridge_for(ctx: Ctx, ref: str, plans: list[HubPlan]) -> tuple[int, Pin, Pin, bool] | None:
+    """两头都接信号、分别接到同一个芯片单元左右两侧引脚的两脚元件（运放的反馈电阻、比较器的
+    迟滞电阻这类），返回 (单元序号, 接左侧的脚, 接右侧的脚, 放在下方)。这样的元件横跨在芯片
+    上方或下方，两头的导线接到左右两侧，环一眼就看得出来（ADR-0014）。
+
+    放上方还是下方，看它接的那两个引脚在本体中线的哪一边：lm358_amp 的反馈接的是下面的反相
+    输入，放上方的话导线会把上面的同相输入圈在环里，输入信号就接不进去了。
+    """
+    pins = [q for q in ctx.syms[ref].pins if not q.hidden]
+    if len(pins) != 2:
+        return None
+    nets = [ctx.net_of.get((ref, q.number)) for q in pins]
+    if any(n is None or ctx.kind(n) != "signal" for n in nets):
+        return None
+    for i, plan in enumerate(plans):
+        if ctx.parts[plan.ref].role == "connector":
+            continue
+        usdef = ctx.syms[plan.ref].for_unit(plan.unit)
+        sides: dict[str, set[str]] = {}
+        ys: dict[str, list[float]] = {}
+        for ch in plan.chains:
+            n = ctx.net_of.get((plan.ref, ch.pin))
+            if n is None:
+                continue
+            q = usdef.pin(ch.pin)
+            side = pin_side(q, plan.rot, False)
+            sides.setdefault(n, set()).add(side)
+            if side in ("left", "right"):
+                ys.setdefault(n, []).append(place_pin(q, 0.0, 0.0, plan.rot, False)[1])
+        s0, s1 = sides.get(nets[0] or "", set()), sides.get(nets[1] or "", set())
+        if not (("left" in s0 and "right" in s1) or ("right" in s0 and "left" in s1)):
+            continue
+        body = usdef.body or usdef.bbox
+        center = -(body[1] + body[3]) / 2  # 库坐标 y 向上，原理图 y 向下
+        loop = ys.get(nets[0] or "", []) + ys.get(nets[1] or "", [])
+        below = bool(loop) and sum(loop) / len(loop) > center + 1e-6
+        if "left" in s0:
+            return i, pins[0], pins[1], below
+        return i, pins[1], pins[0], below
+    return None
+
+
+def plan_bridge(ctx: Ctx, ref: str, left: Pin, right: Pin) -> HubPlan:
+    """横着放的两脚元件：left 脚在左、right 脚在右，两头各一小段线和网络标签（之后连成导线）。"""
+    sdef = ctx.syms[ref]
+    rot = orient_pins(sdef, left, right, (1.0, 0.0))
+    dead: set[str] = set()
+    chains = [build_chain(ctx, ref, q, dead, steps_ok=False) for q in (left, right)]
+    return HubPlan(ref, rot, False, chains)
+
+
+def _with_bridges(hub: Prims, bridges: list[tuple[Prims, bool]]) -> Prims:
+    """横跨元件放在这一团的最上沿以上（或最下沿以下），水平方向以芯片为中心；
+    同一边有好几个时一个摞一个往外放。"""
+    if not bridges:
+        return hub
+    chip = hub.symbols[0].core or hub.symbols[0].box
+    cx = (chip[0] + chip[2]) / 2
+    merged = Prims()
+    merged.extend(hub)
+    _, top, _, bottom = hub.bbox()
+    up_y, down_y = top - GRID * 3, bottom + GRID * 3
+    for br, below in bridges:
+        bx0, by0, bx1, by1 = br.bbox()
+        dx = snap(cx - (bx0 + bx1) / 2)
+        if below:
+            dy = snap(down_y - by0)
+            down_y = by1 + dy + GRID * 2
+        else:
+            dy = snap(up_y - by1)
+            up_y = by0 + dy - GRID * 2
+        merged.extend(br, dx, dy)
+    return merged
+
+
+def _clusters(ctx: Ctx) -> tuple[list[_Cluster], list[list[int]]]:
+    """排好的各团和它们的分列（每列从上到下的团序号）。"""
     plans, claimed = plan_hubs(ctx)
     heads = plan_heads(ctx, claimed)
     free = [ref for ref in ctx.parts if ref in ctx.passive and ref not in claimed]
     attached: dict[int, list[str]] = {}
+    bridged: dict[int, list[tuple[str, Pin, Pin, bool]]] = {}
     alone: list[str] = []
     for ref in free:
+        bridge = _bridge_for(ctx, ref, plans)
+        if bridge is not None:
+            bridged.setdefault(bridge[0], []).append((ref, bridge[1], bridge[2], bridge[3]))
+            continue
         index = _anchor_index(ctx, ref, plans)
         if index is None:
             alone.append(ref)
         else:
             attached.setdefault(index, []).append(ref)
-    out: list[_Cluster] = []
+    protos: list[_Proto] = []
     for i, plan in enumerate(plans):
         sats = attached.get(i, [])
-        prims = _with_satellites(
-            layout_hub(ctx, plan), [layout_hub(ctx, plan_free(ctx, r)) for r in sats]
-        )
-        refs = {plan.ref, *sats}
+        bridges = bridged.get(i, [])
+        refs = {plan.ref, *sats, *(b[0] for b in bridges)}
         refs |= {s.ref for ch in plan.chains for step in ch.steps for s in _step_refs(step)}
         part = ctx.parts[plan.ref]
-        nets = {n for r in refs for n in _part_nets(ctx, r) if ctx.kind(n) == "signal"}
-        out.append(_Cluster(prims, refs, nets, side=part.edge, source=part.role == "connector"))
+        protos.append(
+            _Proto(
+                "hub",
+                plan=plan,
+                sats=sats,
+                bridges=bridges,
+                refs=refs,
+                nets=_plan_nets(ctx, plan, [*sats, *(b[0] for b in bridges)]),
+                side=part.edge,
+                source=part.role == "connector",
+            )
+        )
     for head in heads:
         refs = {s.ref for step in head.chain.steps for s in _step_refs(step)}
         nets = {n for r in refs for n in _part_nets(ctx, r) if ctx.kind(n) == "signal"}
         source = head.kind == "port" and ctx.ports.get(head.net) == "input"
-        out.append(_Cluster(layout_head(ctx, head), refs, nets, source=source))
+        protos.append(_Proto("head", head=head, refs=refs, nets=nets, source=source))
     for ref in alone:
         nets = {n for n in _part_nets(ctx, ref) if ctx.kind(n) == "signal"}
-        out.append(_Cluster(layout_hub(ctx, plan_free(ctx, ref)), {ref}, nets))
+        protos.append(_Proto("free", plan=plan_free(ctx, ref), refs={ref}, nets=nets))
+    columns = _order_columns(protos, _flow_columns(protos))
+    _choose_mirrors(ctx, protos, columns)
+    out: list[_Cluster] = []
+    for pr in protos:
+        if pr.kind == "head" and pr.head is not None:
+            prims = layout_head(ctx, pr.head)
+        elif pr.plan is not None and pr.kind == "hub":
+            # 芯片翻转后左右对调，横跨元件的两只脚也跟着对调
+            spans = [
+                (
+                    layout_hub(ctx, plan_bridge(ctx, r, *((b, a) if pr.plan.mirror else (a, b)))),
+                    below,
+                )
+                for r, a, b, below in pr.bridges
+            ]
+            prims = _with_satellites(
+                _with_bridges(layout_hub(ctx, pr.plan), spans),
+                [layout_hub(ctx, plan_free(ctx, r)) for r in pr.sats],
+            )
+        elif pr.plan is not None:
+            prims = layout_hub(ctx, pr.plan)
+        else:
+            raise AssertionError(pr.kind)
+        out.append(_Cluster(prims, pr.refs, pr.nets, pr.side, pr.source))
+    return out, columns
+
+
+def _order_columns(protos: list[_Proto], columns: list[list[int]]) -> list[list[int]]:
+    """每一列里的团按它连着的上一列各团的平均位置排（重心法），这样团和团之间的线少交叉。"""
+    out = [list(columns[0])] if columns else []
+    for col in columns[1:]:
+        prev = {j: k for k, j in enumerate(out[-1])}
+
+        def bary(i: int, prev: dict[int, int] = prev) -> float:
+            ks = [k for j, k in prev.items() if protos[i].nets & protos[j].nets]
+            return sum(ks) / len(ks) if ks else math.inf
+
+        out.append(sorted(col, key=lambda i: (bary(i), col.index(i))))
     return out
+
+
+def _choose_mirrors(ctx: Ctx, protos: list[_Proto], columns: list[list[int]]) -> None:
+    """主芯片左右翻转，让要和别的团相连的引脚朝向那一团所在的一边（用户 2026-11-01：能连的都连上）。
+
+    连接器不翻（它朝向板边，见 _connector_mirror）。数一数左右两侧的引脚里，有多少个连着的团在
+    它朝的那一边、有多少个在反方向；反方向的多才翻。
+    """
+    col_of = {i: c for c, col in enumerate(columns) for i in col}
+    for i, pr in enumerate(protos):
+        plan = pr.plan
+        if pr.kind != "hub" or plan is None or ctx.parts[plan.ref].role == "connector":
+            continue
+        sdef = ctx.syms[plan.ref].for_unit(plan.unit)
+        score = 0
+        for ch in plan.chains:
+            if ch.end.kind != "label":
+                continue
+            side = pin_side(sdef.pin(ch.pin), plan.rot, False)
+            if side not in ("left", "right"):
+                continue
+            partners = [col_of[j] for j, q in enumerate(protos) if j != i and ch.end.net in q.nets]
+            left = sum(1 for c in partners if c < col_of[i])
+            right = sum(1 for c in partners if c > col_of[i])
+            if left != right:
+                score += 1 if (side == "left") == (left > right) else -1
+        if score < 0:
+            plan.mirror = True
 
 
 def _step_refs(step: Tap | Series) -> list[Shunt | Series]:
@@ -1221,61 +1673,166 @@ def flow_columns[K](
     return [columns[i] for i in sorted(columns)]
 
 
-def _flow_columns(clusters: list[_Cluster]) -> list[list[int]]:
-    """从左边（没说哪边就从任一个）连接器出发，沿共用的信号网络一层层往右；右边的连接器放在最后一列。"""
-    items = list(range(len(clusters)))
+def _flow_columns(clusters: list[_Proto]) -> list[list[int]]:
+    """从左边（没说哪边就从任一个）连接器出发，沿共用的信号网络一层层往右；右边的连接器放在最后一列。
+
+    一个信号网络都不碰的团（只接电源的连接器、运放的电源单元这类）不参与排流向：
+    连接器放进第一列，芯片的电源单元跟同一个芯片的其他单元放一列，其余放最后一列，
+    免得它们都挤进第二列、把那一列撑得太高（lm358_amp 实测）。
+    """
+    items = [i for i in range(len(clusters)) if clusters[i].nets]
     right = {i for i in items if clusters[i].side == "right"}
     sources = [i for i in items if clusters[i].side == "left"] or [
         i for i in items if clusters[i].source and i not in right
     ]
-    return flow_columns(
-        items, sources, right, lambda a, b: bool(clusters[a].nets & clusters[b].nets)
-    )
+    columns: list[list[int]] = []
+    if items:
+        columns = flow_columns(
+            items, sources, right, lambda a, b: bool(clusters[a].nets & clusters[b].nets)
+        )
+    refs = [pr.plan.ref if pr.plan is not None else "" for pr in clusters]
+
+    def only_connectors(col: list[int]) -> bool:
+        return all(clusters[j].source for j in col)
+
+    for i, pr in enumerate(clusters):
+        if pr.nets:
+            continue
+        same_chip = [c for c in columns if refs[i] and any(refs[j] == refs[i] for j in c)]
+        if not columns:
+            columns.append([i])
+        elif pr.source and pr.side == "right":
+            # 只接电源的连接器单独放最外一列（ne555_astable 的电源插座曾被叠到芯片下面）
+            if only_connectors(columns[-1]):
+                columns[-1].append(i)
+            else:
+                columns.append([i])
+        elif pr.source:
+            if only_connectors(columns[0]):
+                columns[0].append(i)
+            else:
+                columns.insert(0, [i])
+        elif same_chip:
+            same_chip[0].append(i)
+        else:
+            columns[-1].append(i)
+    return columns
+
+
+def column_gaps(nets_by_column: list[set[str]]) -> list[float]:
+    """相邻两列之间留多宽：基本 8 格。
+
+    每有一个信号网络跨过这条缝，多留 2 格给导线走（最多多留 20 格）。
+    """
+    gaps = []
+    for c in range(len(nets_by_column) - 1):
+        left = set().union(*nets_by_column[: c + 1])
+        right = set().union(*nets_by_column[c + 1 :])
+        gaps.append(GRID * (8 + 2 * min(len(left & right), 10)))
+    return gaps
 
 
 def _place_columns(
-    clusters: list[_Cluster], columns: list[list[int]], max_w: float, max_h: float
+    clusters: list[_Cluster],
+    columns: list[list[int]],
+    max_w: float,
+    max_h: float,
+    vgap: float = GRID * 8,
 ) -> list[tuple[Prims, float, float]] | None:
+    """按列摆：每列从上到下叠，列和列竖直居中对齐；列间距按要穿过的线数留。"""
+    gaps = column_gaps([set().union(*(clusters[i].nets for i in col)) for col in columns])
+    boxes_by_col = [[clusters[i].prims.bbox() for i in col] for col in columns]
+    heights = [sum(b[3] - b[1] for b in bs) + vgap * (len(bs) - 1) for bs in boxes_by_col]
+    if any(h > max_h for h in heights):
+        return None
+    tallest = max(heights, default=0.0)
     out: list[tuple[Prims, float, float]] = []
     x = 0.0
-    for col in columns:
-        boxes = [clusters[i].prims.bbox() for i in col]
+    for c, (col, boxes) in enumerate(zip(columns, boxes_by_col, strict=True)):
         width = max(b[2] - b[0] for b in boxes)
-        height = sum(b[3] - b[1] for b in boxes) + GRID * 6 * (len(col) - 1)
-        if height > max_h:
-            return None
-        y = 0.0
+        y = snap((tallest - heights[c]) / 2)
         for i, b in zip(col, boxes, strict=True):
             out.append((clusters[i].prims, snap(x - b[0]), snap(y - b[1])))
-            y += (b[3] - b[1]) + GRID * 6
-        x += width + GRID * 10
-    if x - GRID * 10 > max_w:
+            y += (b[3] - b[1]) + vgap
+        x += width + (gaps[c] if c < len(gaps) else 0.0)
+    if x > max_w:
         return None
     return out
 
 
-def build_drawing(
-    parts: list[PartSpec], nets: list[NetSpec], lib_dirs: tuple[Path, ...]
-) -> Drawing:
-    ctx = build_ctx(parts, nets, lib_dirs)
-    clusters = _clusters(ctx)
-    columns = _flow_columns(clusters)
-    for paper, (w, h) in PAPERS.items():
-        usable_w, usable_h = w - 2 * PAGE_MARGIN, h - PAGE_MARGIN - TITLE_RESERVE
-        placed = _place_columns(clusters, columns, usable_w, usable_h)
-        if placed is None:  # 按列排放不下：退回按行折行
-            placed = _pack([c.prims for c in clusters], usable_w, usable_h)
+def arrange(
+    clusters: list[_Cluster],
+    columns: list[list[int]],
+    max_w: float,
+    max_h: float,
+    *,
+    allow_pack: bool = True,
+) -> Prims | None:
+    """把各团摆进 max_w × max_h：先按列（列里的团上下间距从 8 格试到 4 格），
+    还放不下才按行折行（allow_pack）；都放不下返回 None。左上角在 (0, 0) 附近。
+    """
+    placed = None
+    for vgap in (GRID * 8, GRID * 6, GRID * 4):
+        placed = _place_columns(clusters, columns, max_w, max_h, vgap)
         if placed is not None:
-            prims = Prims()
-            for cluster, ox, oy in placed:
-                prims.extend(cluster, ox + PAGE_MARGIN, oy + PAGE_MARGIN)
-            _add_supply_flags(ctx, prims)
-            _center(prims, usable_w, usable_h)
-            used = {s.lib_id for s in prims.symbols}
-            known = {
-                d.lib_id: d for d in (*ctx.syms.values(), *ctx.power_defs.values(), ctx.flag_def)
-            }
-            return Drawing(prims, paper, {k: known[k].raw for k in sorted(used)})
+            break
+    if placed is None and allow_pack:
+        placed = _pack([c.prims for c in clusters], max_w, max_h)
+    if placed is None:
+        return None
+    prims = Prims()
+    for cluster, ox, oy in placed:
+        prims.extend(cluster, ox, oy)
+    return prims
+
+
+def layout_content(
+    parts: list[PartSpec], nets: list[NetSpec], lib_dirs: tuple[Path, ...]
+) -> tuple[Ctx, list[_Cluster], list[list[int]]]:
+    """一组元件画成一团团、分好列，还没摆到纸上（单页多功能块时每块各自调用一次）。"""
+    ctx = build_ctx(parts, nets, lib_dirs)
+    clusters, columns = _clusters(ctx)
+    return ctx, clusters, columns
+
+
+def used_libs(prims: Prims, ctxs: list[Ctx]) -> dict[str, str]:
+    known: dict[str, str] = {}
+    for c in ctxs:
+        for d in (*c.syms.values(), *c.power_defs.values(), c.flag_def):
+            known[d.lib_id] = d.raw
+    return {k: known[k] for k in sorted({s.lib_id for s in prims.symbols})}
+
+
+def fits(prims: Prims, usable_w: float, usable_h: float) -> bool:
+    x0, y0, x1, y1 = prims.bbox()
+    return x1 - x0 <= usable_w + 1e-6 and y1 - y0 <= usable_h + 1e-6
+
+
+def usable_area(paper: str) -> tuple[float, float]:
+    w, h = PAPERS[paper]
+    return w - 2 * PAGE_MARGIN, h - PAGE_MARGIN - TITLE_RESERVE
+
+
+def build_drawing(
+    parts: list[PartSpec], nets: list[NetSpec], lib_dirs: tuple[Path, ...], *, route: bool = True
+) -> Drawing:
+    """一页：各团摆好 → 同名标签连成导线（route）→ PWR_FLAG → 选最小放得下的纸 → 居中。"""
+    from eda_agent.emit.sch_route import connect_labels  # sch_route 依赖本模块，只能在这里引入
+
+    ctx, clusters, columns = layout_content(parts, nets, lib_dirs)
+    # 按信号流向分列比按行折行好读得多：宁可用大一号的纸，也先试按列摆（lm358_amp 实测）
+    for allow_pack in (False, True):
+        for paper in PAPERS:
+            usable_w, usable_h = usable_area(paper)
+            prims = arrange(clusters, columns, usable_w, usable_h, allow_pack=allow_pack)
+            if prims is None:
+                continue
+            stats = vars(connect_labels(prims)) if route else {}
+            add_supply_flags(prims, ctx.supply, ctx.flag_def)
+            if not fits(prims, usable_w, usable_h):
+                continue
+            center(prims, usable_w, usable_h)
+            return Drawing(prims, paper, used_libs(prims, [ctx]), stats)
     raise ValueError("A2 也放不下这一页，需要把功能块拆小")
 
 
@@ -1283,15 +1840,14 @@ def _overlaps(a: Box, b: Box) -> bool:
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
-def _center(prims: Prims, usable_w: float, usable_h: float) -> None:
+def center(prims: Prims, usable_w: float, usable_h: float) -> None:
     """内容整体挪到可用区域正中（可用区域从页边距算起，不含标题栏）。"""
     x0, y0, x1, y1 = prims.bbox()
     dx = snap(PAGE_MARGIN + (usable_w - (x1 - x0)) / 2 - x0)
     dy = snap(PAGE_MARGIN + (usable_h - (y1 - y0)) / 2 - y0)
     moved = Prims()
     moved.extend(prims, dx, dy)
-    prims.symbols, prims.wires = moved.symbols, moved.wires
-    prims.junctions, prims.labels, prims.ncs = moved.junctions, moved.labels, moved.ncs
+    vars(prims).update(vars(moved))
 
 
 _FLAG_OFFSETS = tuple(
@@ -1299,17 +1855,18 @@ _FLAG_OFFSETS = tuple(
 )
 
 
-def _add_supply_flags(ctx: Ctx, prims: Prims) -> None:
+def add_supply_flags(prims: Prims, supply: set[str], flag_def: SymbolDef) -> None:
     """每个由外面供电的电源网络放一个 PWR_FLAG。
 
     依次试这个网络的每个电源符号，在它旁边找一块空地，用一小段横线接上；
     空地要避开所有符号、文字、标签，也不能压到别的导线。
     """
-    for net in sorted(ctx.supply):
+    for net in sorted(supply):
         for anchor in (s for s in prims.symbols if s.prefix == "#PWR" and s.net == net):
             x, y = anchor.x, anchor.y
             boxes = [b for s in prims.symbols if s is not anchor for b in (s.box, *s.text_boxes())]
             boxes += [lb.box for lb in prims.labels]
+            boxes += [n.box for n in prims.notes]
             wires = [
                 (min(w.a[0], w.b[0]), min(w.a[1], w.b[1]), max(w.a[0], w.b[0]), max(w.a[1], w.b[1]))
                 for w in prims.wires
@@ -1321,7 +1878,7 @@ def _add_supply_flags(ctx: Ctx, prims: Prims) -> None:
                     Field("Value", "PWR_FLAG", fx, y, hide=True),
                 ]
                 flag = make_symbol(
-                    "#FLG", ctx.flag_def, "PWR_FLAG", "", fx, y, 0, False, fields,
+                    "#FLG", flag_def, "PWR_FLAG", "", fx, y, 0, False, fields,
                     prefix="#FLG", net=net,
                 )  # fmt: skip
                 wire_box = (min(x, fx), y - 0.05, max(x, fx), y + 0.05)

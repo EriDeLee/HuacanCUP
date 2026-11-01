@@ -10,10 +10,12 @@ from eda_agent.emit.sch_layout import (
     Field,
     Label,
     NetSpec,
+    Note,
     Prims,
     SymbolInst,
     Wire,
     _isotonic,
+    column_gaps,
     display_name,
     flip_justify,
     flow_columns,
@@ -22,6 +24,7 @@ from eda_agent.emit.sch_layout import (
     rotate,
     snap,
     text_box,
+    text_width,
 )
 from eda_agent.gates.schematic_quality import layout_quality, netlist_gate
 
@@ -77,6 +80,18 @@ def test_text_boxes_follow_kicad_justification() -> None:
     assert right_top[2] == pytest.approx(10.0) and right_top[1] >= 9.8
     assert flip_justify("left bottom") == "right bottom"
     assert flip_justify("") == ""
+
+
+def test_chinese_text_is_estimated_wider_than_latin() -> None:
+    assert text_width("AB") == pytest.approx(2 * 1.05)
+    assert text_width("电源") == pytest.approx(2 * 1.05 * 1.6)
+    assert text_width("") > 0
+
+
+def test_column_gaps_grow_with_the_nets_that_cross_them() -> None:
+    gaps = column_gaps([{"A", "B"}, {"A", "B", "C"}, {"C"}, set()])
+    assert gaps[0] > gaps[1] > gaps[2]  # 2 根、1 根、0 根线要穿过
+    assert gaps[2] == pytest.approx(1.27 * 8)
 
 
 def test_snap_lands_on_the_grid() -> None:
@@ -149,6 +164,29 @@ def test_a_lead_leaving_a_pin_outward_is_fine_but_one_entering_the_body_is_not()
 
 def test_quality_gate_fails_when_text_lies_on_a_symbol() -> None:
     prims = Prims(symbols=[_sym("U1", (0, 0, 10, 10))], labels=[Label("NET", 2.0, 6.0, 0)])
+    assert not layout_quality(_drawing(prims)).passed
+
+
+def test_quality_gate_fails_when_a_wire_runs_through_text() -> None:
+    """ADR-0014：ldo_3v3 的 +3V3 导线从 U1 的型号文字上穿过，原来的检查没发现。"""
+    u1 = _sym("U1", (0, 0, 10, 10), [Field("Value", "AMS1117-3.3", 0.0, -2.0, "left")])
+    prims = Prims(symbols=[u1], wires=[Wire((8.0, -5.0), (8.0, 1.0))])
+    report = layout_quality(_drawing(prims))
+    assert not report.passed
+    assert {"type": "wire_through_text", "items": ["U1"]} in report.findings
+
+
+def test_a_wire_ending_at_its_own_label_or_under_a_note_edge_is_fine() -> None:
+    prims = Prims(
+        wires=[Wire((0.0, 5.08), (10.16, 5.08)), Wire((20.32, 0.0), (20.32, 5.08))],
+        labels=[Label("SDA", 10.16, 5.08, 0), Label("SCL", 20.32, 5.08, 180)],
+        notes=[Note("mcu：单片机", 0.0, 7.62)],
+    )
+    assert layout_quality(_drawing(prims)).passed
+
+
+def test_quality_gate_fails_when_a_wire_runs_through_a_block_title() -> None:
+    prims = Prims(notes=[Note("mcu：单片机", 0.0, 0.0)], wires=[Wire((3.0, -2.0), (3.0, 4.0))])
     assert not layout_quality(_drawing(prims)).passed
 
 
