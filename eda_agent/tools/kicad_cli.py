@@ -33,9 +33,12 @@ class KicadCli:
         ok_codes: Collection[int] = (0,),
         timeout_s: float | None = None,
     ) -> ToolResult:
+        # 子进程的工作目录会换成 cwd，相对路径必须先变成绝对路径，否则会指到别处
+        # （M1 发现：多页原理图用相对路径时 kicad-cli 报「加载原理图失败」）。
+        absolute = [a.absolute() if isinstance(a, Path) else a for a in args]
         result = run_tool(
             "kicad-cli",
-            [self.tools.kicad_cli, *args],
+            [self.tools.kicad_cli, *absolute],
             cwd=cwd,
             env=self.env,
             timeout_s=timeout_s or self.tools.timeouts.default_s,

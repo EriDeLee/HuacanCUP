@@ -1,0 +1,35 @@
+{
+  "spec_sha256": null,
+  "blocks": [{"id": "sensor", "purpose": "LM75B I²C 温度传感器，地址 0x48"}],
+  "parts": [
+    {
+      "ref": "J1", "block": "sensor", "value": "I2C",
+      "symbol": "Connector_Generic:Conn_01x04",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical"
+    },
+    {
+      "ref": "U1", "block": "sensor", "value": "LM75B",
+      "symbol": "Sensor_Temperature:LM75B", "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+    },
+    {"ref": "R1", "block": "sensor", "value": "4.7k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R2", "block": "sensor", "value": "4.7k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R3", "block": "sensor", "value": "10k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "C1", "block": "sensor", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"}
+  ],
+  "nets": [
+    {"name": "+3V3", "nodes": [["J1", "1"], ["U1", "8"], ["C1", "1"], ["R1", "1"], ["R2", "1"], ["R3", "1"]], "external_supply": true},
+    {"name": "GND", "nodes": [["J1", "2"], ["U1", "4"], ["C1", "2"], ["U1", "5"], ["U1", "6"], ["U1", "7"]], "external_supply": true},
+    {"name": "SCL", "nodes": [["J1", "3"], ["U1", "2"], ["R1", "2"]]},
+    {"name": "SDA", "nodes": [["J1", "4"], ["U1", "1"], ["R2", "2"]]},
+    {"name": "OS", "nodes": [["U1", "3"], ["R3", "2"]]}
+  ],
+  "board": {
+    "size_mm": [30, 25],
+    "layers": 2,
+    "edge_connectors": [{"ref": "J1", "side": "left"}]
+  },
+  "notes": [
+    "LM75B：1 SDA、2 SCL、3 O.S.（开漏，R3 上拉）、4 GND、5–7 A2–A0（都接地，地址 0x48）、8 +Vs",
+    "J1：1 +3V3、2 GND、3 SCL、4 SDA"
+  ]
+}

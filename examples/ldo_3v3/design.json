@@ -1,0 +1,47 @@
+{
+  "spec_sha256": null,
+  "blocks": [
+    {"id": "regulator", "purpose": "5 V 转 3.3 V 线性稳压（AMS1117-3.3）"},
+    {"id": "indicator", "purpose": "3.3 V 电源指示灯"}
+  ],
+  "parts": [
+    {
+      "ref": "J1", "block": "regulator", "value": "5V_IN",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {
+      "ref": "U1", "block": "regulator", "value": "AMS1117-3.3",
+      "symbol": "Regulator_Linear:AMS1117-3.3",
+      "footprint": "Package_TO_SOT_SMD:SOT-223-3_TabPin2",
+      "mpn": "AMS1117-3.3", "lcsc": "C6186"
+    },
+    {"ref": "C1", "block": "regulator", "value": "10uF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "C2", "block": "regulator", "value": "22uF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {
+      "ref": "J2", "block": "regulator", "value": "3V3_OUT",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {"ref": "R1", "block": "indicator", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "D1", "block": "indicator", "value": "Red", "symbol": "Device:LED", "footprint": "LED_SMD:LED_0805_2012Metric"}
+  ],
+  "nets": [
+    {"name": "VIN", "class": "power", "nodes": [["J1", "1"], ["U1", "3"], ["C1", "1"]], "external_supply": true},
+    {"name": "+3V3", "class": "power", "nodes": [["U1", "2"], ["C2", "1"], ["J2", "1"], ["R1", "1"]]},
+    {"name": "GND", "class": "power", "nodes": [["J1", "2"], ["U1", "1"], ["C1", "2"], ["C2", "2"], ["J2", "2"], ["D1", "1"]], "external_supply": true},
+    {"name": "LED_A", "nodes": [["R1", "2"], ["D1", "2"]]}
+  ],
+  "board": {
+    "size_mm": [40, 30],
+    "layers": 2,
+    "mount_holes": "M3x4",
+    "edge_connectors": [{"ref": "J1", "side": "left"}, {"ref": "J2", "side": "right"}],
+    "net_classes": {"power": {"track_mm": 0.6, "clearance_mm": 0.25}}
+  },
+  "notes": [
+    "AMS1117-3.3：1 脚 GND、2 脚输出（散热片也是 2 脚）、3 脚输入",
+    "+3V3 由 U1 的输出脚（power_out）驱动，所以不标 external_supply",
+    "指示灯电流约 (3.3 − 1.8) V / 1 kΩ ≈ 1.5 mA"
+  ]
+}

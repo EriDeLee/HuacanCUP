@@ -1,0 +1,47 @@
+{
+  "spec_sha256": null,
+  "blocks": [{"id": "amp", "purpose": "LM358 同相放大器，增益 11；第二个运放接成跟随器闲置"}],
+  "parts": [
+    {
+      "ref": "J1", "block": "amp", "value": "IN",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {
+      "ref": "J2", "block": "amp", "value": "OUT",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {
+      "ref": "J3", "block": "amp", "value": "5V_IN",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {
+      "ref": "U1", "block": "amp", "value": "LM358",
+      "symbol": "Amplifier_Operational:LM358", "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+    },
+    {"ref": "R1", "block": "amp", "value": "10k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R2", "block": "amp", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R3", "block": "amp", "value": "100k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "C1", "block": "amp", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric", "anchor": "U1"}
+  ],
+  "nets": [
+    {"name": "+5V", "nodes": [["J3", "1"], ["U1", "8"], ["C1", "1"]], "external_supply": true},
+    {"name": "GND", "nodes": [["J3", "2"], ["J1", "2"], ["J2", "2"], ["U1", "4"], ["C1", "2"], ["R2", "2"], ["R3", "2"], ["U1", "5"]], "external_supply": true},
+    {"name": "IN", "nodes": [["J1", "1"], ["U1", "3"], ["R3", "1"]]},
+    {"name": "FB", "nodes": [["U1", "2"], ["R1", "2"], ["R2", "1"]]},
+    {"name": "OUT", "nodes": [["U1", "1"], ["R1", "1"], ["J2", "1"]]},
+    {"name": "BUF", "nodes": [["U1", "6"], ["U1", "7"]]}
+  ],
+  "board": {
+    "size_mm": [45, 35],
+    "layers": 2,
+    "edge_connectors": [{"ref": "J1", "side": "left"}, {"ref": "J2", "side": "right"}]
+  },
+  "notes": [
+    "LM358 是双运放：单元 A（1、2、3 脚）放大，单元 B（5、6、7 脚）同相端接地、接成跟随器，单元 C 是电源（8 脚 V+、4 脚 V−）",
+    "增益 1 + R1/R2 = 11；R3 给输入端一个直流通路",
+    "C1 用 anchor 指定画在 U1 旁边（U1 有三个单元，引擎会挑共用电源网络的那个单元）"
+  ]
+}

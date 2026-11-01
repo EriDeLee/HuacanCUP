@@ -69,6 +69,29 @@ def test_tracemaker_command_line_and_partial_results_are_kept(
     assert "--time" not in argv and "--work" not in argv
 
 
+def test_board_min_track_width_is_read_from_the_project_file(tmp_path: Path) -> None:
+    pro = tmp_path / "x.kicad_pro"
+    pro.write_text('{"board": {"design_settings": {"rules": {"min_track_width": 0.2}}}}', "utf-8")
+    assert routers.board_min_track_um(pro) == 200
+    pro.write_text("{}", "utf-8")
+    assert routers.board_min_track_um(pro) is None
+    assert routers.board_min_track_um(tmp_path / "missing.kicad_pro") is None
+
+
+def test_fastroute_is_told_the_minimum_track_width(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    tools = load_config(REPO_ROOT / "config.example.yaml").tools
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(routers, "run_tool", _fake_run(0, seen))
+    routers.fastroute_route(
+        tools, tmp_path / "b.dsn", tmp_path / "b.ses", log_dir=tmp_path, min_track_um=200
+    )
+    assert "--router.min_trace_width_um=200" in seen["argv"]
+    routers.fastroute_route(tools, tmp_path / "b.dsn", tmp_path / "b.ses", log_dir=tmp_path)
+    assert not any("min_trace_width" in a for a in seen["argv"])
+
+
 @pytest.mark.parametrize("exit_code", [1, 2, None])
 def test_tracemaker_failures_raise(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, exit_code: int | None

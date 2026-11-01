@@ -1,0 +1,40 @@
+{
+  "spec_sha256": null,
+  "blocks": [{"id": "timer", "purpose": "NE555 无稳态多谐振荡器，驱动指示灯闪烁"}],
+  "parts": [
+    {
+      "ref": "J1", "block": "timer", "value": "5V_IN",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {
+      "ref": "U1", "block": "timer", "value": "NE555P",
+      "symbol": "Timer:NE555P", "footprint": "Package_DIP:DIP-8_W7.62mm", "mpn": "NE555P"
+    },
+    {"ref": "R1", "block": "timer", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R2", "block": "timer", "value": "10k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "C1", "block": "timer", "value": "10uF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "C2", "block": "timer", "value": "10nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "C3", "block": "timer", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "R3", "block": "timer", "value": "330", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "D1", "block": "timer", "value": "Red", "symbol": "Device:LED", "footprint": "LED_SMD:LED_0805_2012Metric"}
+  ],
+  "nets": [
+    {"name": "+5V", "nodes": [["J1", "1"], ["U1", "8"], ["U1", "4"], ["R1", "1"], ["C3", "1"]], "external_supply": true},
+    {"name": "GND", "nodes": [["J1", "2"], ["U1", "1"], ["C1", "2"], ["C2", "2"], ["C3", "2"], ["D1", "1"]], "external_supply": true},
+    {"name": "DIS", "nodes": [["U1", "7"], ["R1", "2"], ["R2", "1"]]},
+    {"name": "THR", "nodes": [["U1", "6"], ["U1", "2"], ["R2", "2"], ["C1", "1"]]},
+    {"name": "CTRL", "nodes": [["U1", "5"], ["C2", "1"]]},
+    {"name": "OUT", "nodes": [["U1", "3"], ["R3", "1"]]},
+    {"name": "LED_A", "nodes": [["R3", "2"], ["D1", "2"]]}
+  ],
+  "board": {
+    "size_mm": [50, 35],
+    "layers": 2,
+    "edge_connectors": [{"ref": "J1", "side": "left"}]
+  },
+  "notes": [
+    "NE555P：1 GND、2 TRIG、3 OUT、4 RESET（接 +5V 不复位）、5 CONT、6 THRES、7 DISCH、8 VCC",
+    "频率 f ≈ 1.44 / ((R1 + 2·R2)·C1) = 1.44 / (21 kΩ × 10 µF) ≈ 6.9 Hz"
+  ]
+}

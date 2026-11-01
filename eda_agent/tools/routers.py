@@ -16,12 +16,23 @@ Freerouting 和 kicad-tools 的实测结果在 ADR-0004；它们的适配代码�
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from eda_agent.config import ToolsConfig
 from eda_agent.tools.runner import ToolResult, run_tool
 from eda_agent.tools.sandbox import sandbox_env
 from eda_agent.trace import TraceWriter
+
+
+def board_min_track_um(project_file: Path) -> int | None:
+    """KiCad 工程文件里板子规定的最小线宽（µm）；读不到返回 None。"""
+    try:
+        data = json.loads(project_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    value = data.get("board", {}).get("design_settings", {}).get("rules", {}).get("min_track_width")
+    return round(value * 1000) if isinstance(value, (int, float)) and value > 0 else None
 
 
 def fastroute_route(
@@ -32,20 +43,26 @@ def fastroute_route(
     log_dir: Path,
     trace: TraceWriter | None = None,
     max_passes: int = 20,
+    min_track_um: int | None = None,
 ) -> ToolResult:
+    """min_track_um：板子规定的最小线宽。fastroute 默认会在焊盘附近把线收窄（neck-down），
+    不告诉它下限就会收到 0.15 mm 以下，DRC 报线宽错误（M1 多页样例实测）。"""
+    args: list[str | Path] = [
+        tools.fastroute,
+        "-de",
+        dsn,
+        "-do",
+        ses,
+        "-mp",
+        str(max_passes),
+        f"--max-time={int(tools.timeouts.route_s) - 30}",
+        f"--report={ses.with_suffix('.fastroute.json')}",
+    ]
+    if min_track_um is not None:
+        args.append(f"--router.min_trace_width_um={min_track_um}")
     result = run_tool(
         "fastroute",
-        [
-            tools.fastroute,
-            "-de",
-            dsn,
-            "-do",
-            ses,
-            "-mp",
-            str(max_passes),
-            f"--max-time={int(tools.timeouts.route_s) - 30}",
-            f"--report={ses.with_suffix('.fastroute.json')}",
-        ],
+        args,
         cwd=dsn.parent,
         env=sandbox_env(tools),
         timeout_s=tools.timeouts.route_s,

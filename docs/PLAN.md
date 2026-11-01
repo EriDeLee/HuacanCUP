@@ -24,7 +24,7 @@
 |---|---|---|
 | 需求规格（冻结） | `spec.json` + `spec.md` | 需求智能体起草，用户确认后冻结 |
 | 设计源 | `design.json`（本系统 IR） | 各智能体以补丁方式修改 |
-| 可编辑 EDA 工程 | `.kicad_pro` / `.kicad_sch` / `.kicad_pcb` | 原理图生成方案待定（SKiDL 不够好；自写版面引擎样张用户看过，「还不错，先这样」，完整版未批准，见 ADR-0009、ADR-0011），自写建板脚本生成 PCB，fastroute 布线 |
+| 可编辑 EDA 工程 | `.kicad_pro` / `.kicad_sch` / `.kicad_pcb` | 自写原理图版面引擎（按功能块分页，ADR-0011、ADR-0013），自写建板脚本生成 PCB，fastroute 布线 |
 | 制造文件 | Gerber + 钻孔 zip、坐标文件 | `kicad-cli pcb export gerbers` / `drill` / `pos` |
 | BOM | `bom.csv`（含库存/采购来源、LCSC 编号、单价） | 确定性脚本 |
 | 采购申请 | `purchase_request.json` + 可上传的购物车 CSV | 采购智能体起草，用户在飞书/网页审批 |
@@ -49,7 +49,7 @@
 | 向量模型 | **跑在用户的云 GPU 上，只通过一个 API 端口调用**（数据手册与历史设计检索）；开发机没有可用的 GPU；具体模型 M4 用真实数据对比后再定 | 用户决定，ADR-0010 |
 | 存储 | **只用文件**：JSON / JSONL / Markdown / `.npy`。不建数据库服务 | 用户不想碰数据库；可审计、可 git 追踪 |
 | 电路 IR | 自定义 `design.json`（见 §5） | 便于确定性校验、diff、补丁；与具体 EDA 解耦 |
-| 原理图生成 | **SKiDL** `generate_schematic()`（SKiDL 3.0 把布局布线交给 schematizer；层次化子电路→多页） | ADR-0009：大电路要开 `auto_stub`，不连线的元件会让它崩溃 |
+| 原理图生成 | **自写版面引擎**（`eda_agent/emit/sch_*.py`，用户 2026-10-31 选定）：主芯片 + 引脚链，按功能块分页、根页是框图，按信号流向排；支持多单元和派生符号。SKiDL 只留作对照（`smoke --schematic skidl`） | ADR-0009（SKiDL 实测不够好）、ADR-0011、ADR-0013 |
 | PCB 生成 | **自写 `eda_agent/kicad_side/board_build.py`**（kicad-cli 导出的网表→`.kicad_pcb`，在 KiCad 自带 Python 里调 `pcbnew`）；kinet2pcb 在 Windows 上不可用 | ADR-0007 |
 | 布线 | **fastroute 0.1.14 主用，KiCadRoutingTools v0.23.7 备用**（用户 2026-10-31 决定）；fastroute 走 DSN 导出 / SES 导回（`pcbnew.ExportSpecctraDSN` / `ImportSpecctraSES`），KiCadRoutingTools 直接读写 .kicad_pcb | ADR-0004 |
 | ERC/DRC/导出 | **kicad-cli**（KiCad 10.0.8，解压版）：`sch erc --format json --exit-code-violations`、`pcb drc --format json --schematic-parity`、`pcb export gerbers/drill/pos/step/glb`、`pcb render` | ADR-0002 |
@@ -187,6 +187,8 @@ S11 bringup      （板子回来后）生成上电步骤 + 每步期望读数（
 }
 ```
 - 智能体只能提交 **RFC 6902 JSON Patch**；编排器应用补丁 → pydantic 校验 → 失败则把错误原样返回给该智能体重试（最多 3 次）。
+  实现：`eda_agent/ir/patch.py`；完整字段见 `schemas/design.schema.json`（由模型导出，ADR-0013）。
+- `parts[].role`（hub / connector / passive）、`parts[].anchor`：只给原理图引擎用，说明元件怎么画、画在谁旁边；不填就自动推断（ADR-0013）。
 - `nets[].external_supply`（默认 false）：这个网络的电由板外经连接器送进来；原理图只在这类网络上放 PWR_FLAG（ADR-0008）。
 - `ratings` 字段来自数据手册检索结果，并记录出处（`ratings_source: {doc_id, page}`），供规则检查使用。
 
@@ -321,7 +323,7 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 | # | 周 | 内容 | 完成标准 |
 |---|---|---|---|
 | M0 | 11/02–11/08 | **工具链冒烟（本机 `.tools/` + GitHub Actions，ADR-0001）**：KiCad 10.0.8（自带 ngspice）、fastroute / KiCadRoutingTools、SKiDL、lark-oapi 跑通；手写一个 LED+电阻电路走完：IR→原理图→ERC→PCB→布线（DSN→SES 回导，或直接读写 .kicad_pcb）→DRC→Gerber/STEP/GLB/render | `python tasks.py smoke` 全绿。**必须验证并记录**：① 无界面下 DSN 导出与 SES 导入的方法（pcbnew Python API 的 Specctra 导出/导入函数在所选 KiCad 版本是否可用）；② `kicad-cli` 是否支持导出 GLB；③ SKiDL `generate_schematic` 对 30+ 器件电路的可读性；④ 选定 embedding 模型（已推迟到 M4，ADR-0010） |
-| M1 | 11/09–11/22 | IR（pydantic + JSON Schema）、JSON Patch 应用器、IR→SKiDL→KiCad 发射器、运行目录与 trace | 10 个手写 IR 样例全部生成可打开的工程 |
+| M1 | 11/09–11/22 | IR（pydantic + JSON Schema）、JSON Patch 应用器、IR→自写原理图引擎→KiCad 发射器、运行目录与 trace | 10 个手写 IR 样例全部生成可打开的工程 —— **已达到（2026-11-01）**：`examples/` 10 个样例，KiCad 的 ERC、网表一致、原理图与 PCB 一致全过（ADR-0013） |
 | M2 | 11/23–12/06 | G1/G2/G3 全部 Gate；测试台生成器；收敛重试 | 每条规则有正反单测；5 个手写电路的仿真判定与手算一致 |
 | M3 | 12/07–12/27 | LLM 抽象、各智能体、编排状态机、回退与预算、断点续跑；CLI：`eda-agent run "需求"` | 3 个演示需求在 CLI 端到端跑出交付物（允许人工节点用命令行确认） |
 | M4 | 12/28–01/10 | 目录/库存/采购；数据手册下载+解析+本地向量检索 | 选型结果都带出处页码；缺件生成采购申请 |
@@ -367,7 +369,7 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 │   ├── agents/               各角色
 │   ├── llm/                  provider 抽象、重试、结构化输出、计费
 │   ├── ir/                   pydantic 模型、patch 应用、校验
-│   ├── emit/                 IR→SKiDL→kicad_sch / netlist / kicad_pcb；IR→SPICE
+│   ├── emit/                 IR→自写原理图引擎→kicad_sch / netlist / kicad_pcb；IR→SPICE
 │   ├── kicad_side/           在 KiCad 自带 Python 里运行、调用 pcbnew 的脚本（建板、Specctra 导出导回）
 │   ├── gates/                static(rules/), sim, drc
 │   ├── tools/                kicad_cli, 布线器, ngspice, sandbox（外部工具环境）, runner（统一超时与 trace）
@@ -391,7 +393,7 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 
 | 风险 | 对策 |
 |---|---|
-| SKiDL 自动生成的原理图可读性差 | 按功能块分层（每块一页）；M0 评估；必要时用 `kicad-sch-api` 自写布局后处理 |
+| SKiDL 自动生成的原理图可读性差 | 已换成自写版面引擎，按功能块分页（ADR-0011、ADR-0013）；好不好看仍要人看，机器只查重叠、压字、穿线、出图纸和连接 |
 | 自动布线对功率/大电流板质量一般 | 电源网络先由规则设定线宽与铺铜；文档如实写"建议人工复核的网络" |
 | 厂商 SPICE 模型与 ngspice 不兼容 | 兼容模式 + 行为模型兜底并在报告里标"近似"；收集常用器件模型到 `models/` |
 | 仿真不收敛（尤其自激振荡电路） | 自动重试策略；`sim_error` 单独统计，不当作通过 |

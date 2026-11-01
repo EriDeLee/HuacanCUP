@@ -15,10 +15,13 @@ from eda_agent.emit.sch_layout import (
     Wire,
     _isotonic,
     display_name,
+    flip_justify,
+    flow_columns,
     infer_kind,
     pin_side,
     rotate,
     snap,
+    text_box,
 )
 from eda_agent.gates.schematic_quality import layout_quality, netlist_gate
 
@@ -48,6 +51,32 @@ def test_net_names_and_kinds() -> None:
         assert infer_kind(rail) == "power"
     for signal in ("Net-(U4-FB+)", "/VPP{slash}MCLR", "SCL", "LED_A"):
         assert infer_kind(signal) == "signal"
+
+
+def test_flow_columns_start_at_the_sources_and_put_the_right_edge_last() -> None:
+    # a(左边连接器) → b → c；d 没连上任何东西；e 是右边连接器，也连着 c
+    links = {("a", "b"), ("b", "c"), ("c", "e")}
+
+    def linked(x: str, y: str) -> bool:
+        return (x, y) in links or (y, x) in links
+
+    columns = flow_columns(["a", "b", "c", "d", "e"], ["a"], {"e"}, linked)
+    assert columns == [["a"], ["b", "d"], ["c"], ["e"]]
+
+
+def test_flow_columns_without_sources_start_at_the_first_item() -> None:
+    assert flow_columns(["x", "y"], [], set(), lambda a, b: True) == [["x"], ["y"]]
+
+
+def test_text_boxes_follow_kicad_justification() -> None:
+    centered = text_box(10.0, 10.0, "AB")
+    assert centered[0] < 10.0 < centered[2]
+    left = text_box(10.0, 10.0, "AB", "left")
+    assert left[0] == 10.0 and left[2] > 10.0
+    right_top = text_box(10.0, 10.0, "AB", "right top")
+    assert right_top[2] == pytest.approx(10.0) and right_top[1] >= 9.8
+    assert flip_justify("left bottom") == "right bottom"
+    assert flip_justify("") == ""
 
 
 def test_snap_lands_on_the_grid() -> None:

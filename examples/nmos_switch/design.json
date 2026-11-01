@@ -1,0 +1,49 @@
+{
+  "spec_sha256": null,
+  "blocks": [
+    {"id": "input", "purpose": "控制信号输入和栅极电阻"},
+    {"id": "driver", "purpose": "低边 N 沟道 MOSFET 开关、栅极下拉、续流二极管"}
+  ],
+  "parts": [
+    {
+      "ref": "J1", "block": "input", "value": "CTRL_IN",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {"ref": "R1", "block": "input", "value": "100", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {
+      "ref": "Q1", "block": "driver", "value": "2N7002",
+      "symbol": "Transistor_FET:2N7002", "footprint": "Package_TO_SOT_SMD:SOT-23",
+      "ratings": {"vds_max": 60, "id_max": 0.115}
+    },
+    {"ref": "R2", "block": "driver", "value": "100k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "D1", "block": "driver", "value": "1N4148W", "symbol": "Device:D", "footprint": "Diode_SMD:D_SOD-123"},
+    {
+      "ref": "J2", "block": "driver", "value": "LOAD",
+      "symbol": "Connector:Screw_Terminal_01x02",
+      "footprint": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal"
+    },
+    {
+      "ref": "J3", "block": "driver", "value": "12V_IN",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    }
+  ],
+  "nets": [
+    {"name": "CTRL", "nodes": [["J1", "1"], ["R1", "1"]]},
+    {"name": "GATE", "nodes": [["R1", "2"], ["Q1", "1"], ["R2", "1"]]},
+    {"name": "GND", "class": "power", "nodes": [["J1", "2"], ["R2", "2"], ["Q1", "2"], ["J3", "2"]], "external_supply": true},
+    {"name": "+12V", "class": "power", "nodes": [["J3", "1"], ["J2", "1"], ["D1", "1"]], "external_supply": true},
+    {"name": "LOAD_N", "class": "power", "nodes": [["J2", "2"], ["Q1", "3"], ["D1", "2"]]}
+  ],
+  "board": {
+    "size_mm": [50, 35],
+    "layers": 2,
+    "edge_connectors": [{"ref": "J1", "side": "left"}, {"ref": "J2", "side": "right"}],
+    "net_classes": {"power": {"track_mm": 0.5, "clearance_mm": 0.3}}
+  },
+  "notes": [
+    "2N7002：1 G、2 S、3 D；负载电流不超过约 100 mA",
+    "D1 阴极（1 脚）接 +12V、阳极接 LOAD_N，关断时给感性负载续流"
+  ]
+}

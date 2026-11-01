@@ -1,0 +1,48 @@
+{
+  "spec_sha256": null,
+  "blocks": [
+    {"id": "usb", "purpose": "USB-C 受电口：CC 下拉 5.1 kΩ，向供电方要 5 V"},
+    {"id": "protect", "purpose": "自恢复保险丝和 5 V 输出"},
+    {"id": "indicator", "purpose": "5 V 电源指示灯"}
+  ],
+  "parts": [
+    {
+      "ref": "J1", "block": "usb", "value": "USB_C",
+      "symbol": "Connector:USB_C_Receptacle_PowerOnly_6P",
+      "footprint": "Connector_USB:USB_C_Receptacle_GCT_USB4125-xx-x_6P_TopMnt_Horizontal"
+    },
+    {"ref": "R1", "block": "usb", "value": "5.1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R2", "block": "usb", "value": "5.1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "F1", "block": "protect", "value": "500mA", "symbol": "Device:Polyfuse", "footprint": "Fuse:Fuse_1206_3216Metric"},
+    {
+      "ref": "J2", "block": "protect", "value": "5V_OUT",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {"ref": "R3", "block": "indicator", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "D1", "block": "indicator", "value": "Green", "symbol": "Device:LED", "footprint": "LED_SMD:LED_0805_2012Metric"}
+  ],
+  "nets": [
+    {"name": "VBUS", "nodes": [["J1", "A9"], ["J1", "B9"], ["F1", "1"]], "external_supply": true},
+    {"name": "+5V", "nodes": [["F1", "2"], ["J2", "1"], ["R3", "1"]], "external_supply": true},
+    {
+      "name": "GND",
+      "nodes": [["J1", "A12"], ["J1", "B12"], ["J1", "SH"], ["R1", "2"], ["R2", "2"], ["J2", "2"], ["D1", "1"]],
+      "external_supply": true
+    },
+    {"name": "CC1", "nodes": [["J1", "A5"], ["R1", "1"]]},
+    {"name": "CC2", "nodes": [["J1", "B5"], ["R2", "1"]]},
+    {"name": "LED_A", "nodes": [["R3", "2"], ["D1", "2"]]}
+  ],
+  "board": {
+    "size_mm": [40, 30],
+    "layers": 2,
+    "edge_connectors": [{"ref": "J1", "side": "left"}, {"ref": "J2", "side": "right"}]
+  },
+  "notes": [
+    "只取电不传数据，用 6 针的「仅供电」USB-C 座：没有 D+、D−、SBU",
+    "B9、B12 是符号里和 A9、A12 叠在一起的隐藏引脚，一并写进网络",
+    "+5V 是 VBUS 经 F1 过来的，电仍然来自板外，所以也标 external_supply（ADR-0008）",
+    "最初用的 16 针座（GCT USB4105）自带的定位孔离焊盘只有 0.19 mm，小于板子默认的 0.25 mm 孔间距，DRC 报错；换成 6 针座"
+  ]
+}

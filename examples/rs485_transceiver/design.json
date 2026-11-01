@@ -1,0 +1,43 @@
+{
+  "spec_sha256": null,
+  "blocks": [{"id": "rs485", "purpose": "MAX485E 半双工 RS-485 收发，带 120 Ω 终端和失效保护偏置"}],
+  "parts": [
+    {
+      "ref": "J2", "block": "rs485", "value": "MCU",
+      "symbol": "Connector_Generic:Conn_01x05",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x05_P2.54mm_Vertical"
+    },
+    {
+      "ref": "U1", "block": "rs485", "value": "MAX485E",
+      "symbol": "Interface_UART:MAX485E", "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+    },
+    {"ref": "C1", "block": "rs485", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "R1", "block": "rs485", "value": "120", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R2", "block": "rs485", "value": "680", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R3", "block": "rs485", "value": "680", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {
+      "ref": "J1", "block": "rs485", "value": "RS485",
+      "symbol": "Connector:Screw_Terminal_01x02",
+      "footprint": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal"
+    }
+  ],
+  "nets": [
+    {"name": "+5V", "nodes": [["J2", "1"], ["U1", "8"], ["C1", "1"], ["R2", "1"]], "external_supply": true},
+    {"name": "GND", "nodes": [["J2", "2"], ["U1", "5"], ["C1", "2"], ["R3", "2"]], "external_supply": true},
+    {"name": "RO", "nodes": [["J2", "3"], ["U1", "1"]]},
+    {"name": "DI", "nodes": [["J2", "4"], ["U1", "4"]]},
+    {"name": "DE_RE", "nodes": [["J2", "5"], ["U1", "2"], ["U1", "3"]]},
+    {"name": "A", "nodes": [["U1", "6"], ["R1", "1"], ["R2", "2"], ["J1", "1"]]},
+    {"name": "B", "nodes": [["U1", "7"], ["R1", "2"], ["R3", "1"], ["J1", "2"]]}
+  ],
+  "board": {
+    "size_mm": [45, 30],
+    "layers": 4,
+    "edge_connectors": [{"ref": "J2", "side": "left"}, {"ref": "J1", "side": "right"}]
+  },
+  "notes": [
+    "MAX485E：1 RO、2 ~RE、3 DE、4 DI、5 GND、6 A、7 B、8 VCC；~RE 和 DE 接在一起，一个脚切换收发",
+    "R2、R3 把总线空闲时拉到 A > B，避免接收端乱跳",
+    "四层板样例：检查建板时层数设置是否生效"
+  ]
+}

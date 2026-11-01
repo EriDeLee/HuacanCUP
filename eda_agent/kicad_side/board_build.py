@@ -1,4 +1,4 @@
-"""网表 → .kicad_pcb：放封装、连网络、画板框，按通用规则排成一排（M0）。
+"""网表 → .kicad_pcb：放封装、连网络、画板框和安装孔，按通用规则一行行排开（M1）。
 
 在 KiCad 自带 Python 里运行：
 
@@ -83,33 +83,126 @@ def draw_outline(board, width_mm, height_mm):
         board.Add(seg)
 
 
-def place_in_row(design, footprints):
-    """板边连接器放在指定的一侧，其余元件按 IR 顺序从左到右等间距排成一排，竖直居中。"""
+# 安装孔（board.mount_holes，如 M3x4）：封装名，孔中心离板边的距离（mm）
+HOLES = {
+    "M2": ("MountingHole_2.2mm_M2", 3.5),
+    "M2.5": ("MountingHole_2.7mm_M2.5", 4.0),
+    "M3": ("MountingHole_3.2mm_M3", 4.5),
+}
+
+
+def _move_to(fp, box, left, top):
+    fp.Move(pcbnew.VECTOR2I(int(left - box.GetLeft()), int(top - box.GetTop())))
+
+
+def add_mount_holes(board, design, footprint_dir, taken):
+    """四角（x4）或左上、右下两角（x2）各放一个安装孔。
+
+    返回每个角留出的正方形边长（mm），没有孔返回 0。
+    安装孔只在板子上、不在原理图里：标成 board only，
+    DRC 的原理图一致性检查不会把它当成多出来的元件。
+    """
+    spec = design["board"].get("mount_holes")
+    if not spec:
+        return 0.0
+    size, count = spec.split("x")
+    name, inset = HOLES[size]
+    width_mm, height_mm = design["board"]["size_mm"]
+    corners = [(inset, inset), (width_mm - inset, height_mm - inset)]
+    if count == "4":
+        corners = [
+            (inset, inset),
+            (width_mm - inset, inset),
+            (width_mm - inset, height_mm - inset),
+            (inset, height_mm - inset),
+        ]
+    number = 1
+    for x, y in corners:
+        while f"H{number}" in taken:
+            number += 1
+        fp = pcbnew.FootprintLoad(str(footprint_dir / "MountingHole.pretty"), name)
+        if fp is None:
+            raise SystemExit(f"找不到安装孔封装 MountingHole:{name}")
+        fp.SetFPID(pcbnew.LIB_ID("MountingHole", name))
+        fp.SetReference(f"H{number}")
+        fp.SetValue(f"MountingHole_{size}")
+        fp.SetBoardOnly(True)
+        fp.SetExcludedFromBOM(True)
+        fp.SetExcludedFromPosFiles(True)
+        fp.SetPosition(pcbnew.VECTOR2I(mm(ORIGIN_MM[0] + x), mm(ORIGIN_MM[1] + y)))
+        board.Add(fp)
+        number += 1
+    return 2 * inset
+
+
+def _edge_column(refs, footprints, boxes, x_left, x_right, top, bottom, at_left):
+    """板边连接器贴着板边竖着排一列，整列竖直居中。返回这一列的宽度（内部单位）。"""
+    if not refs:
+        return 0
+    total = sum(boxes[r].GetHeight() for r in refs) + mm(MIN_GAP_MM) * (len(refs) - 1)
+    if total > bottom - top:
+        raise SystemExit(
+            f"板边连接器 {refs} 竖着排一列有 {pcbnew.ToMM(total):.1f} mm 高，板子放不下"
+        )
+    y = (top + bottom - total) // 2
+    for r in refs:
+        box = boxes[r]
+        x = x_left if at_left else x_right - box.GetWidth()
+        _move_to(footprints[r], box, x, y)
+        y += box.GetHeight() + mm(MIN_GAP_MM)
+    return max(boxes[r].GetWidth() for r in refs)
+
+
+def place_parts(design, footprints, corner):
+    """板边连接器贴着指定的一边竖排；其余元件按 IR 顺序一行行排（放满一行换下一行），
+    每行内和行与行之间的空隙都均匀分开。corner 是安装孔在四角留出的正方形边长（mm）。"""
     width_mm, height_mm = design["board"]["size_mm"]
     sides = {c["ref"]: c["side"] for c in design["board"].get("edge_connectors", [])}
-    order = [p["ref"] for p in design["parts"]]
-    row = (
-        [r for r in order if sides.get(r) == "left"]
-        + [r for r in order if r not in sides]
-        + [r for r in order if sides.get(r) == "right"]
-    )
-    boxes = {r: bbox(footprints[r]) for r in row}
-    total = sum(b.GetWidth() for b in boxes.values())
-    free = mm(width_mm) - 2 * mm(MARGIN_MM) - total
-    gap = free / (len(row) - 1) if len(row) > 1 else 0
-    if gap < mm(MIN_GAP_MM):
+    order = [p["ref"] for p in design["parts"] if p["ref"] in footprints]
+    boxes = {r: bbox(footprints[r]) for r in order}
+    x0, x1 = mm(ORIGIN_MM[0] + MARGIN_MM), mm(ORIGIN_MM[0] + width_mm - MARGIN_MM)
+    y0, y1 = mm(ORIGIN_MM[1] + MARGIN_MM), mm(ORIGIN_MM[1] + height_mm - MARGIN_MM)
+    keep = mm(corner) if corner else 0
+    left = [r for r in order if sides.get(r) == "left"]
+    right = [r for r in order if sides.get(r) == "right"]
+    left_w = _edge_column(left, footprints, boxes, x0, x1, y0 + keep, y1 - keep, True)
+    right_w = _edge_column(right, footprints, boxes, x0, x1, y0 + keep, y1 - keep, False)
+    ix0 = x0 + (left_w + mm(MIN_GAP_MM) if left else 0)
+    ix1 = x1 - (right_w + mm(MIN_GAP_MM) if right else 0)
+    iy0, iy1 = y0 + keep, y1 - keep
+    middle = [r for r in order if r not in sides]
+    rows, row, row_w = [], [], 0
+    for r in middle:
+        w = boxes[r].GetWidth()
+        if w > ix1 - ix0:
+            raise SystemExit(
+                f"{r} 宽 {pcbnew.ToMM(w):.1f} mm，{width_mm}×{height_mm} mm 的板子放不下"
+            )
+        if row and row_w + mm(MIN_GAP_MM) + w > ix1 - ix0:
+            rows.append(row)
+            row, row_w = [], 0
+        row_w += (mm(MIN_GAP_MM) if row else 0) + w
+        row.append(r)
+    if row:
+        rows.append(row)
+    heights = [max(boxes[r].GetHeight() for r in rw) for rw in rows]
+    free_y = (iy1 - iy0) - sum(heights)
+    if free_y < mm(MIN_GAP_MM) * (len(rows) - 1):
+        total = pcbnew.ToMM(sum(heights))
         raise SystemExit(
-            f"{width_mm}×{height_mm} mm 的板子排不下这一排元件"
-            f"（元件总宽 {pcbnew.ToMM(total):.1f} mm）"
+            f"{width_mm}×{height_mm} mm 的板子排不下：{len(rows)} 行元件共 {total:.1f} mm 高"
         )
-    x = mm(ORIGIN_MM[0] + MARGIN_MM)
-    cy = mm(ORIGIN_MM[1] + height_mm / 2)
-    for ref in row:
-        box = boxes[ref]
-        if box.GetHeight() > mm(height_mm) - 2 * mm(MARGIN_MM):
-            raise SystemExit(f"{ref} 高 {pcbnew.ToMM(box.GetHeight()):.1f} mm，板子放不下")
-        footprints[ref].Move(pcbnew.VECTOR2I(int(x - box.GetLeft()), int(cy - box.GetCenter().y)))
-        x += box.GetWidth() + gap
+    gap_y = free_y // (len(rows) + 1)
+    y = iy0 + gap_y
+    for rw, h in zip(rows, heights, strict=True):
+        free_x = (ix1 - ix0) - sum(boxes[r].GetWidth() for r in rw)
+        gap_x = free_x // (len(rw) + 1)
+        x = ix0 + gap_x
+        for r in rw:
+            box = boxes[r]
+            _move_to(footprints[r], box, x, y + (h - box.GetHeight()) // 2)
+            x += box.GetWidth() + gap_x
+        y += h + gap_y
 
 
 def build(netlist, design, footprint_dir, out, omit_paths):
@@ -149,7 +242,8 @@ def build(netlist, design, footprint_dir, out, omit_paths):
 
     width_mm, height_mm = design["board"]["size_mm"]
     draw_outline(board, width_mm, height_mm)
-    place_in_row(design, footprints)
+    corner = add_mount_holes(board, design, footprint_dir, set(footprints))
+    place_parts(design, footprints, corner)
     board.BuildListOfNets()
     if not pcbnew.SaveBoard(str(out), board):
         raise SystemExit(f"保存 {out} 失败")

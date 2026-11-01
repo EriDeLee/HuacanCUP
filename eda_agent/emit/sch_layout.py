@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -75,7 +76,10 @@ class PartSpec:
     lib_id: str
     value: str
     footprint: str = ""
-    role: str = ""  # "hub" 或 "connector" 强制当主芯片；空 = 按引脚数自动
+    # hub / connector 强制当主芯片；passive 强制当两脚元件；空 = 按引脚数自动（ADR-0013）
+    role: str = ""
+    anchor: str = ""  # 不在引脚链上时贴在哪个元件旁边；空 = 自动找
+    edge: str = ""  # 连接器在板子哪一边（left / right）：原理图上也放在那一边
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,8 @@ class NetSpec:
     kind: str = ""  # ground / power / signal；空 = 按名字推断
     external: bool = False  # 还连到这一页以外
     supply: bool = False  # 电从这一页以外或板外送进来：放一个 PWR_FLAG 告诉 ERC 这里有电源
+    # 这个信号网络通到别的功能块页：链的末端画层次标签（input / output / bidirectional / passive）
+    port: str = ""
 
 
 # ---------------------------------------------------------------- 图元
@@ -117,6 +123,7 @@ class SymbolInst:
     prefix: str = ""  # 电源符号 "#PWR"、电源标记 "#FLG"；普通元件为空
     net: str = ""  # 电源符号所属的网络
     pin_dirs: dict[str, Point] = field(default_factory=dict)  # 每个引脚「往外」的单位方向
+    unit: int = 1  # 多单元符号（如 LM358 的 A、B 两个运放和电源单元）画的是第几个单元
 
     @property
     def power(self) -> bool:
@@ -149,10 +156,18 @@ class Label:
     x: float
     y: float
     rot: int
+    shape: str = (
+        ""  # 空 = 本页标签；input / output / bidirectional / passive = 通到上层页的层次标签
+    )
 
     @property
     def box(self) -> Box:
         w = max(len(self.text), 1) * CHAR_W
+        if self.shape:  # 层次标签的旗形框比文字长，且上下居中
+            w += 2.6
+            if self.rot == 180:
+                return (self.x - w, self.y - TEXT_H / 2 - 0.4, self.x, self.y + TEXT_H / 2 + 0.4)
+            return (self.x, self.y - TEXT_H / 2 - 0.4, self.x + w, self.y + TEXT_H / 2 + 0.4)
         if self.rot == 180:
             return (self.x - w, self.y - TEXT_H - 0.2, self.x, self.y)
         return (self.x, self.y - TEXT_H - 0.2, self.x + w, self.y)
@@ -211,9 +226,25 @@ def _shift(box: Box, dx: float, dy: float) -> Box:
 
 
 def text_box(x: float, y: float, text: str, justify: str = "") -> Box:
+    """KiCad 的对齐：left / right 是锚点在文字的左 / 右端；
+
+    top / bottom 是锚点在文字的上 / 下沿；不写是居中。
+    """
+    words = justify.split()
     w = max(len(text), 1) * CHAR_W
-    x0 = x if justify == "left" else x - w if justify == "right" else x - w / 2
-    return (x0, y - TEXT_H / 2 - 0.1, x0 + w, y + TEXT_H / 2 + 0.1)
+    x0 = x if "left" in words else x - w if "right" in words else x - w / 2
+    if "top" in words:
+        y0 = y - 0.1
+    elif "bottom" in words:
+        y0 = y - TEXT_H - 0.1
+    else:
+        y0 = y - TEXT_H / 2 - 0.1
+    return (x0, y0, x0 + w, y0 + TEXT_H + 0.2)
+
+
+def flip_justify(justify: str) -> str:
+    swap = {"left": "right", "right": "left"}
+    return " ".join(swap.get(w, w) for w in justify.split())
 
 
 # ---------------------------------------------------------------- 几何
@@ -291,6 +322,7 @@ def make_symbol(
     prefix: str = "",
     net: str = "",
 ) -> SymbolInst:
+    """sdef 要是已经选好单元的（SymbolDef.for_unit），pins / body 都只算这个单元的。"""
     return SymbolInst(
         ref=ref,
         lib_id=sdef.lib_id,
@@ -307,6 +339,7 @@ def make_symbol(
         prefix=prefix,
         net=net,
         pin_dirs={p.number: _OUT[pin_side(p, rot, mirror)] for p in sdef.pins},
+        unit=sdef.unit,
     )
 
 
@@ -353,6 +386,7 @@ class HubPlan:
     rot: int
     mirror: bool
     chains: list[Chain]
+    unit: int = 1
 
 
 @dataclass
@@ -367,6 +401,7 @@ class Ctx:
     power_defs: dict[str, SymbolDef]
     flag_def: SymbolDef
     passive: set[str] = field(default_factory=set)
+    ports: dict[str, str] = field(default_factory=dict)  # 网络 → 层次标签的形状
 
     def kind(self, net: str) -> str:
         return self.kinds.get(net, "signal")
@@ -383,6 +418,7 @@ def build_ctx(parts: list[PartSpec], nets: list[NetSpec], lib_dirs: tuple[Path, 
     kinds: dict[str, str] = {}
     external: set[str] = set()
     supply: set[str] = set()
+    ports: dict[str, str] = {}
     for net in nets:
         kinds[net.name] = net.kind or infer_kind(net.name)
         members[net.name] = list(net.pins)
@@ -390,7 +426,17 @@ def build_ctx(parts: list[PartSpec], nets: list[NetSpec], lib_dirs: tuple[Path, 
             external.add(net.name)
         if net.supply:
             supply.add(net.name)
+        if net.port and kinds[net.name] == "signal":
+            ports[net.name] = net.port
         for ref, number in net.pins:
+            if ref not in syms:
+                raise ValueError(f"网络 {net.name} 用到的 {ref} 不在这一页的元件里")
+            try:
+                syms[ref].pin(number)
+            except KeyError:
+                raise ValueError(
+                    f"网络 {net.name}：{ref}（{syms[ref].lib_id}）没有编号为 {number} 的引脚"
+                ) from None
             net_of[(ref, number)] = net.name
     power_defs = {
         "ground": load_symbol("power:GND", lib_dirs),
@@ -407,11 +453,17 @@ def build_ctx(parts: list[PartSpec], nets: list[NetSpec], lib_dirs: tuple[Path, 
         supply,
         power_defs,
         flag_def,
+        ports=ports,
     )
     for p in parts:
         sdef = syms[p.ref]
         visible = [q for q in sdef.pins if not q.hidden]
-        if p.role not in ("hub", "connector") and len(visible) == 2 and sdef.two_pin_axis:
+        two_pin = sdef.unit_count == 1 and len(visible) == 2 and sdef.two_pin_axis is not None
+        if p.role == "passive" and not two_pin:
+            raise ValueError(
+                f"{p.ref}（{p.lib_id}）标了 passive，但它不是只有两个共线引脚的单单元符号"
+            )
+        if p.role not in ("hub", "connector") and two_pin:
             ctx.passive.add(p.ref)
     return ctx
 
@@ -464,6 +516,128 @@ def build_chain(ctx: Ctx, hub: str, pin: Pin, claimed: set[str], *, steps_ok: bo
         else:
             chain.end = End("label", cur)
         return chain
+
+
+@dataclass
+class HeadPlan:
+    """没有主芯片可挂的两脚元件串成的链，从一个网络起头。kind：
+
+    port = 通到别页的信号（起头画层次标签）；power = 电源（起头画电源符号）；
+    label = 本页信号（起头画标签）。
+    """
+
+    net: str
+    kind: str
+    chain: Chain
+
+
+def _scan(
+    ctx: Ctx, cur: str, entry: tuple[str, str] | None, claimed: set[str]
+) -> tuple[list[Shunt], list[Series], int]:
+    shunts: list[Shunt] = []
+    series: list[Series] = []
+    rest = 0
+    for ref, number in ctx.members[cur]:
+        if (ref, number) == entry:
+            continue
+        if ref not in ctx.passive or ref in claimed:
+            rest += 1
+            continue
+        other = ctx.other_pin(ref, number)
+        onet = ctx.net_of.get((ref, other.number))
+        if onet is None or onet == cur:
+            rest += 1
+        elif ctx.kind(onet) != "signal":
+            shunts.append(Shunt(ref, number, other.number, onet))
+        else:
+            series.append(Series(ref, number, other.number))
+    return shunts, series, rest
+
+
+def build_head_chain(ctx: Ctx, net: str, claimed: set[str]) -> Chain:
+    """和 build_chain 一样往下走，只是起点是一个网络而不是芯片的引脚。
+
+    起点是电源时只取一个通往信号网络的串联元件（电源和地之间的电容留给「贴在芯片旁边」）；
+    起点是通到别页的信号时，起头的标签就代表了别页，所以不因为它通到页外而停下。
+    """
+    chain = Chain("", "", [], End("none"))
+    shunts, series, rest = _scan(ctx, net, None, claimed)
+    if ctx.kind(net) != "signal":
+        shunts, rest = [], 0
+        series = series[:1]
+    if shunts:
+        claimed.update(s.ref for s in shunts)
+        chain.steps.append(Tap(shunts))
+    if len(series) != 1 or rest:
+        if chain.steps and (series or rest):
+            chain.end = End("label", net)
+        return chain
+    step = series[0]
+    claimed.add(step.ref)
+    chain.steps.append(step)
+    cur = ctx.net_of[(step.ref, step.exit)]
+    entry: tuple[str, str] = (step.ref, step.exit)
+    while True:
+        if ctx.kind(cur) != "signal":
+            chain.end = End("power", cur)
+            return chain
+        shunts, series, rest = _scan(ctx, cur, entry, claimed)
+        if shunts:
+            claimed.update(s.ref for s in shunts)
+            chain.steps.append(Tap(shunts))
+        outside = cur in ctx.external
+        if len(series) == 1 and not rest and not outside:
+            step = series[0]
+            claimed.add(step.ref)
+            chain.steps.append(step)
+            entry = (step.ref, step.exit)
+            cur = ctx.net_of[entry]
+            continue
+        chain.end = End("label", cur) if (series or rest or outside) else End("none")
+        return chain
+
+
+def plan_heads(ctx: Ctx, claimed: set[str]) -> list[HeadPlan]:
+    """把还没挂上的两脚元件串起来：先从通到别页的信号起头，再从电源起头，最后从只连着两脚元件的信号起头。"""
+    heads: list[HeadPlan] = []
+    while True:
+        loose = {r for r in ctx.parts if r in ctx.passive and r not in claimed}
+        if not loose:
+            return heads
+        touching = [n for n in ctx.members if any(r in loose for r, _ in ctx.members[n])]
+        ports = [n for n in touching if n in ctx.ports]
+        powers = [n for n in touching if ctx.kind(n) == "power"]
+        signals = [
+            n
+            for n in touching
+            if ctx.kind(n) == "signal" and n not in ctx.ports
+            and all(r in ctx.passive for r, _ in ctx.members[n])
+        ]  # fmt: skip
+        for kind, nets in (("port", ports), ("power", powers), ("label", signals)):
+            found = None
+            for net in nets:
+                trial = set(claimed)
+                chain = build_head_chain(ctx, net, trial)
+                if chain.steps:
+                    claimed |= trial
+                    found = HeadPlan(net, kind, chain)
+                    break
+            if found:
+                heads.append(found)
+                break
+        else:
+            return heads
+
+
+def layout_head(ctx: Ctx, head: HeadPlan) -> Prims:
+    p = Prims()
+    if head.kind == "power":
+        p.symbols.append(_power_symbol(ctx, head.net, 0.0, 0.0))
+    else:
+        text = display_name(head.net)
+        p.labels.append(Label(text, 0.0, 0.0, 180, ctx.ports.get(head.net, "")))
+    p.extend(render_lane(ctx, head.chain, 1))
+    return p
 
 
 # ---------------------------------------------------------------- 画一条链
@@ -574,7 +748,9 @@ def render_lane(ctx: Ctx, chain: Chain, d: int) -> Prims:
     elif chain.end.kind == "label":
         u += STUB
         wire_to(u)
-        p.labels.append(Label(display_name(chain.end.net), r4(d * u), 0.0, 0 if d > 0 else 180))
+        shape = ctx.ports.get(chain.end.net, "")
+        text = display_name(chain.end.net)
+        p.labels.append(Label(text, r4(d * u), 0.0, 0 if d > 0 else 180, shape))
     return p
 
 
@@ -582,16 +758,29 @@ def render_lane(ctx: Ctx, chain: Chain, d: int) -> Prims:
 
 
 def _hub_fields(sdef: SymbolDef, ref: str, value: str, rot: int, mirror: bool) -> list[Field]:
+    """主芯片的位号和数值照库里的位置和对齐写（库作者排好的不会互相压住）。
+
+    镜像的符号，KiCad 显示时会把左右对齐也镜像过来，所以这里算外框时也左右对调；写文件时再对调回去。
+    """
     out = []
     for name, text in (("Reference", ref), ("Value", value)):
         px, py = sdef.prop_pos.get(name, (0.0, 0.0))
         dx, dy = rotate(px, py, rot)
-        out.append(Field(name, text, r4(-dx if mirror else dx), r4(dy)))
+        justify = sdef.prop_justify.get(name, "")
+        out.append(
+            Field(
+                name,
+                text,
+                r4(-dx if mirror else dx),
+                r4(dy),
+                flip_justify(justify) if mirror else justify,
+            )
+        )
     return out
 
 
 def layout_hub(ctx: Ctx, plan: HubPlan) -> Prims:
-    sdef, part = ctx.syms[plan.ref], ctx.parts[plan.ref]
+    sdef, part = ctx.syms[plan.ref].for_unit(plan.unit), ctx.parts[plan.ref]
     if plan.ref in ctx.passive:
         core = make_symbol(plan.ref, sdef, part.value, "", 0.0, 0.0, plan.rot).core
         fields = _passive_fields(plan.ref, part.value, 0.0, 0.0, core, False, 1)
@@ -819,20 +1008,31 @@ def _lay_vertical(
 # ---------------------------------------------------------------- 计划、排版
 
 
+def _connector_mirror(ctx: Ctx, ref: str, visible: list[Pin]) -> bool:
+    """连接器的引脚朝向电路：板子左边的连接器引脚朝右，右边的朝左；没说在哪边就让引脚朝右。"""
+    connected = [q for q in visible if (ref, q.number) in ctx.net_of] or visible
+    sides = {pin_side(q, 0, False) for q in connected}
+    if ctx.parts[ref].edge == "right":
+        return sides == {"right"}
+    return sides == {"left"}
+
+
 def plan_hubs(ctx: Ctx) -> tuple[list[HubPlan], set[str]]:
+    """每个主芯片的每个单元一个计划；单元之间各画各的，引脚链照常从各自的引脚拉出去。"""
     claimed: set[str] = set()
     plans: list[HubPlan] = []
     for ref, part in ctx.parts.items():
-        sdef = ctx.syms[ref]
-        visible = [q for q in sdef.pins if not q.hidden]
-        if ref in ctx.passive or sdef.is_power or not visible:
+        full = ctx.syms[ref]
+        if ref in ctx.passive or full.is_power:
             continue
-        mirror = False
-        if part.role == "connector":
-            connected = [q for q in visible if (ref, q.number) in ctx.net_of]
-            mirror = bool(connected) and all(pin_side(q, 0, False) == "left" for q in connected)
-        chains = [build_chain(ctx, ref, q, claimed) for q in visible]
-        plans.append(HubPlan(ref, 0, mirror, chains))
+        for unit in sorted(full.units):
+            sdef = full.for_unit(unit)
+            visible = [q for q in sdef.pins if not q.hidden]
+            if not visible:
+                continue
+            mirror = part.role == "connector" and _connector_mirror(ctx, ref, visible)
+            chains = [build_chain(ctx, ref, q, claimed) for q in visible]
+            plans.append(HubPlan(ref, 0, mirror, chains, unit))
     return plans, claimed
 
 
@@ -860,23 +1060,211 @@ class Drawing:
     libs: dict[str, str]  # 用到的符号：库标识 → 库里的原文
 
 
+@dataclass
+class _Cluster:
+    """页面上的一团：一个主芯片（的一个单元）连同它的引脚链和贴在旁边的元件；或一个落单的两脚元件。"""
+
+    prims: Prims
+    refs: set[str]
+    nets: set[str]  # 这一团碰到的信号网络（用来排信号流向）
+    side: str = ""  # left / right：板边连接器，原理图上也放在那一边
+    source: bool = False  # 连接器：信号流向从它开始
+
+
+def _part_nets(ctx: Ctx, ref: str) -> set[str]:
+    full = ctx.syms[ref]
+    pins = {p.number for geom in full.units.values() for p in geom.pins} or {
+        p.number for p in full.pins
+    }
+    return {net for number in pins if (net := ctx.net_of.get((ref, number))) is not None}
+
+
+def _anchor_index(ctx: Ctx, ref: str, plans: list[HubPlan]) -> int | None:
+    """落单的两脚元件贴在哪个主芯片（的哪个单元）旁边：先看 anchor；
+    再按共用网络的方式排：经电源输入脚共用的最优先，只共用地的排在最后
+    （几乎所有芯片都接地，按地来找会全挤到第一个芯片旁边）。"""
+    nets = _part_nets(ctx, ref)
+
+    def rank(plan: HubPlan) -> int | None:
+        """0 = 经电源输入脚共用（去耦电容该贴的地方）；1 = 经别的脚共用电源或信号；2 = 只共用地。"""
+        sdef = ctx.syms[plan.ref]
+        best: int | None = None
+        for ch in plan.chains:
+            net = ctx.net_of.get((plan.ref, ch.pin))
+            if net not in nets:
+                continue
+            if ctx.kind(net) == "ground":
+                r = 2
+            elif sdef.pin(ch.pin).etype == "power_in":
+                r = 0
+            else:
+                r = 1
+            best = r if best is None else min(best, r)
+        return best
+
+    def best_of(candidates: list[int]) -> int | None:
+        found: tuple[int, int] | None = None
+        for i in candidates:
+            r = rank(plans[i])
+            if r is not None and (found is None or r < found[0]):
+                found = (r, i)
+        return found[1] if found else None
+
+    anchor = ctx.parts[ref].anchor
+    if anchor:
+        # 多单元芯片（如运放）：贴在和它共用电源的那个单元旁边，而不是第一个接地的单元
+        same = [i for i, plan in enumerate(plans) if plan.ref == anchor]
+        if not same:
+            return None
+        found = best_of(same)
+        return same[0] if found is None else found
+    return best_of(list(range(len(plans))))
+
+
+def _with_satellites(hub: Prims, satellites: list[Prims]) -> Prims:
+    """落单的元件在主芯片这一团的正下方排成一行，左边对齐。"""
+    if not satellites:
+        return hub
+    x0, _, _, y1 = hub.bbox()
+    x = x0
+    y = y1 + GRID * 4
+    merged = Prims()
+    merged.extend(hub)
+    for sat in satellites:
+        sx0, sy0, sx1, _ = sat.bbox()
+        merged.extend(sat, snap(x - sx0), snap(y - sy0))
+        x += (sx1 - sx0) + GRID * 4
+    return merged
+
+
+def _clusters(ctx: Ctx) -> list[_Cluster]:
+    plans, claimed = plan_hubs(ctx)
+    heads = plan_heads(ctx, claimed)
+    free = [ref for ref in ctx.parts if ref in ctx.passive and ref not in claimed]
+    attached: dict[int, list[str]] = {}
+    alone: list[str] = []
+    for ref in free:
+        index = _anchor_index(ctx, ref, plans)
+        if index is None:
+            alone.append(ref)
+        else:
+            attached.setdefault(index, []).append(ref)
+    out: list[_Cluster] = []
+    for i, plan in enumerate(plans):
+        sats = attached.get(i, [])
+        prims = _with_satellites(
+            layout_hub(ctx, plan), [layout_hub(ctx, plan_free(ctx, r)) for r in sats]
+        )
+        refs = {plan.ref, *sats}
+        refs |= {s.ref for ch in plan.chains for step in ch.steps for s in _step_refs(step)}
+        part = ctx.parts[plan.ref]
+        nets = {n for r in refs for n in _part_nets(ctx, r) if ctx.kind(n) == "signal"}
+        out.append(_Cluster(prims, refs, nets, side=part.edge, source=part.role == "connector"))
+    for head in heads:
+        refs = {s.ref for step in head.chain.steps for s in _step_refs(step)}
+        nets = {n for r in refs for n in _part_nets(ctx, r) if ctx.kind(n) == "signal"}
+        source = head.kind == "port" and ctx.ports.get(head.net) == "input"
+        out.append(_Cluster(layout_head(ctx, head), refs, nets, source=source))
+    for ref in alone:
+        nets = {n for n in _part_nets(ctx, ref) if ctx.kind(n) == "signal"}
+        out.append(_Cluster(layout_hub(ctx, plan_free(ctx, ref)), {ref}, nets))
+    return out
+
+
+def _step_refs(step: Tap | Series) -> list[Shunt | Series]:
+    return list(step.shunts) if isinstance(step, Tap) else [step]
+
+
+def flow_layers[K](
+    items: list[K], sources: list[K], skip: set[K], linked: Callable[[K, K], bool]
+) -> dict[K, int]:
+    """分层：从 sources 出发沿 linked 一层层往外；没走到的，从第一个没走到的接着走（从第 1 层起）。
+    skip 里的不参与（留给调用方放到最后一层）。"""
+    depth: dict[K, int] = {}
+
+    def walk(start: list[K], level: int) -> None:
+        for s in start:
+            depth[s] = level
+        frontier = list(start)
+        while frontier:
+            nxt = []
+            for a in frontier:
+                for b in items:
+                    if b not in depth and b not in skip and linked(a, b):
+                        depth[b] = depth[a] + 1
+                        nxt.append(b)
+            frontier = nxt
+
+    walk([s for s in sources if s not in skip], 0)
+    while rest := [k for k in items if k not in depth and k not in skip]:
+        walk([rest[0]], 1)
+    return depth
+
+
+def flow_columns[K](
+    items: list[K], sources: list[K], last: set[K], linked: Callable[[K, K], bool]
+) -> list[list[K]]:
+    """按信号流向分列；last 里的（右边的板边连接器）放在最后一列。同一列里保持输入顺序。"""
+    depth = flow_layers(items, sources or items[:1], last, linked)
+    end = max(depth.values(), default=-1) + 1
+    for k in last:
+        depth[k] = end
+    columns: dict[int, list[K]] = {}
+    for k in items:
+        columns.setdefault(depth[k], []).append(k)
+    return [columns[i] for i in sorted(columns)]
+
+
+def _flow_columns(clusters: list[_Cluster]) -> list[list[int]]:
+    """从左边（没说哪边就从任一个）连接器出发，沿共用的信号网络一层层往右；右边的连接器放在最后一列。"""
+    items = list(range(len(clusters)))
+    right = {i for i in items if clusters[i].side == "right"}
+    sources = [i for i in items if clusters[i].side == "left"] or [
+        i for i in items if clusters[i].source and i not in right
+    ]
+    return flow_columns(
+        items, sources, right, lambda a, b: bool(clusters[a].nets & clusters[b].nets)
+    )
+
+
+def _place_columns(
+    clusters: list[_Cluster], columns: list[list[int]], max_w: float, max_h: float
+) -> list[tuple[Prims, float, float]] | None:
+    out: list[tuple[Prims, float, float]] = []
+    x = 0.0
+    for col in columns:
+        boxes = [clusters[i].prims.bbox() for i in col]
+        width = max(b[2] - b[0] for b in boxes)
+        height = sum(b[3] - b[1] for b in boxes) + GRID * 6 * (len(col) - 1)
+        if height > max_h:
+            return None
+        y = 0.0
+        for i, b in zip(col, boxes, strict=True):
+            out.append((clusters[i].prims, snap(x - b[0]), snap(y - b[1])))
+            y += (b[3] - b[1]) + GRID * 6
+        x += width + GRID * 10
+    if x - GRID * 10 > max_w:
+        return None
+    return out
+
+
 def build_drawing(
     parts: list[PartSpec], nets: list[NetSpec], lib_dirs: tuple[Path, ...]
 ) -> Drawing:
     ctx = build_ctx(parts, nets, lib_dirs)
-    plans, claimed = plan_hubs(ctx)
-    clusters: list[Prims] = [layout_hub(ctx, plan) for plan in plans]
-    for ref in ctx.parts:
-        if ref in ctx.passive and ref not in claimed:
-            clusters.append(layout_hub(ctx, plan_free(ctx, ref)))
+    clusters = _clusters(ctx)
+    columns = _flow_columns(clusters)
     for paper, (w, h) in PAPERS.items():
-        placed = _pack(clusters, w - 2 * PAGE_MARGIN, h - PAGE_MARGIN - TITLE_RESERVE)
+        usable_w, usable_h = w - 2 * PAGE_MARGIN, h - PAGE_MARGIN - TITLE_RESERVE
+        placed = _place_columns(clusters, columns, usable_w, usable_h)
+        if placed is None:  # 按列排放不下：退回按行折行
+            placed = _pack([c.prims for c in clusters], usable_w, usable_h)
         if placed is not None:
             prims = Prims()
             for cluster, ox, oy in placed:
                 prims.extend(cluster, ox + PAGE_MARGIN, oy + PAGE_MARGIN)
             _add_supply_flags(ctx, prims)
-            _center(prims, w - 2 * PAGE_MARGIN, h - PAGE_MARGIN - TITLE_RESERVE)
+            _center(prims, usable_w, usable_h)
             used = {s.lib_id for s in prims.symbols}
             known = {
                 d.lib_id: d for d in (*ctx.syms.values(), *ctx.power_defs.values(), ctx.flag_def)

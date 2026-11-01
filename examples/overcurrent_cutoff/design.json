@@ -1,0 +1,69 @@
+{
+  "spec_sha256": null,
+  "blocks": [
+    {"id": "input", "purpose": "电池输入与 5 V 逻辑电源接口"},
+    {"id": "switch", "purpose": "低边功率 MOSFET 与 10 mΩ 采样电阻"},
+    {"id": "sense", "purpose": "比较器：采样电压超过约 50 mV（约 5 A）时把栅极拉低关断"}
+  ],
+  "parts": [
+    {
+      "ref": "J1", "block": "input", "value": "BAT",
+      "symbol": "Connector:Screw_Terminal_01x02",
+      "footprint": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal"
+    },
+    {
+      "ref": "J3", "block": "input", "value": "5V_LOGIC",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {
+      "ref": "J2", "block": "switch", "value": "LOAD",
+      "symbol": "Connector:Screw_Terminal_01x02",
+      "footprint": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal"
+    },
+    {
+      "ref": "Q1", "block": "switch", "value": "IRLZ44N",
+      "symbol": "Transistor_FET:IRLZ44N", "footprint": "Package_TO_SOT_THT:TO-220-3_Vertical",
+      "ratings": {"vds_max": 55, "id_max": 47}
+    },
+    {"ref": "R1", "block": "switch", "value": "0.01", "symbol": "Device:R", "footprint": "Resistor_SMD:R_2512_6332Metric"},
+    {
+      "ref": "U1", "block": "sense", "value": "LM393",
+      "symbol": "Comparator:LM393", "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+    },
+    {"ref": "R2", "block": "sense", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "C2", "block": "sense", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "R4", "block": "sense", "value": "100k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R5", "block": "sense", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R6", "block": "sense", "value": "10k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R7", "block": "sense", "value": "1M", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "C3", "block": "sense", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"}
+  ],
+  "nets": [
+    {"name": "VBAT", "class": "power", "nodes": [["J1", "1"], ["J2", "1"]], "external_supply": true},
+    {"name": "LOAD_N", "class": "power", "nodes": [["J2", "2"], ["Q1", "2"]]},
+    {"name": "ISENSE", "class": "power", "nodes": [["Q1", "3"], ["R1", "1"], ["R2", "1"]]},
+    {
+      "name": "GND", "class": "power",
+      "nodes": [["J1", "2"], ["R1", "2"], ["J3", "2"], ["U1", "4"], ["C2", "2"], ["C3", "2"], ["R5", "2"], ["U1", "5"]],
+      "external_supply": true
+    },
+    {"name": "+5V", "nodes": [["J3", "1"], ["U1", "8"], ["C3", "1"], ["R4", "1"], ["R6", "1"], ["U1", "6"]], "external_supply": true},
+    {"name": "ISENSE_F", "nodes": [["R2", "2"], ["C2", "1"], ["U1", "2"]]},
+    {"name": "VREF", "nodes": [["R4", "2"], ["R5", "1"], ["U1", "3"], ["R7", "1"]]},
+    {"name": "GATE", "nodes": [["U1", "1"], ["R6", "2"], ["Q1", "1"], ["R7", "2"]]}
+  ],
+  "board": {
+    "size_mm": [70, 45],
+    "layers": 2,
+    "mount_holes": "M3x4",
+    "edge_connectors": [{"ref": "J1", "side": "left"}, {"ref": "J2", "side": "right"}],
+    "net_classes": {"power": {"track_mm": 1.5, "clearance_mm": 0.4}}
+  },
+  "notes": [
+    "演示用：PLAN §0 的「电池与负载之间的过流保护器」的一个最简版本，未经仿真验证（M2 才有仿真关）",
+    "采样电压经 R2/C2 滤波接比较器反相端；基准 VREF ≈ 5 V × 1k / 101k ≈ 49.5 mV 接同相端，超过即输出拉低、关断 Q1",
+    "R7 从输出接回同相端形成迟滞；关断后电流归零会再次导通，是「打嗝」式限流，不是锁存",
+    "LM393 是双比较器：单元 B 同相端接地、反相端接 +5V，输出（7 脚）不接；单元 C 是电源"
+  ]
+}

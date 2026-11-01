@@ -1,0 +1,63 @@
+{
+  "spec_sha256": null,
+  "blocks": [
+    {"id": "power", "purpose": "5 V 电源输入"},
+    {"id": "mcu", "purpose": "ATtiny85 单片机：复位上拉、去耦"},
+    {"id": "isp", "purpose": "6 针 AVR ISP 下载口"},
+    {"id": "led", "purpose": "PB3 驱动的指示灯"}
+  ],
+  "parts": [
+    {
+      "ref": "J1", "block": "power", "value": "5V_IN",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {
+      "ref": "U1", "block": "mcu", "value": "ATtiny85-20P",
+      "symbol": "MCU_Microchip_ATtiny:ATtiny85-20P",
+      "footprint": "Package_DIP:DIP-8_W7.62mm",
+      "mpn": "ATTINY85-20PU"
+    },
+    {
+      "ref": "C1", "block": "mcu", "value": "100nF",
+      "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"
+    },
+    {
+      "ref": "R1", "block": "mcu", "value": "10k",
+      "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "J2", "block": "isp", "value": "AVR_ISP",
+      "symbol": "Connector_Generic:Conn_02x03_Odd_Even",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical"
+    },
+    {
+      "ref": "R2", "block": "led", "value": "330",
+      "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "D1", "block": "led", "value": "Green",
+      "symbol": "Device:LED", "footprint": "LED_SMD:LED_0805_2012Metric"
+    }
+  ],
+  "nets": [
+    {"name": "+5V", "nodes": [["J1", "1"], ["U1", "8"], ["C1", "1"], ["R1", "1"], ["J2", "2"]], "external_supply": true},
+    {"name": "GND", "nodes": [["J1", "2"], ["U1", "4"], ["C1", "2"], ["D1", "1"], ["J2", "6"]], "external_supply": true},
+    {"name": "RESET", "nodes": [["U1", "1"], ["R1", "2"], ["J2", "5"]]},
+    {"name": "MOSI", "nodes": [["U1", "5"], ["J2", "4"]]},
+    {"name": "MISO", "nodes": [["U1", "6"], ["J2", "1"]]},
+    {"name": "SCK", "nodes": [["U1", "7"], ["J2", "3"]]},
+    {"name": "LED_DRV", "nodes": [["U1", "2"], ["R2", "1"]]},
+    {"name": "LED_A", "nodes": [["R2", "2"], ["D1", "2"]]}
+  ],
+  "board": {
+    "size_mm": [50, 40],
+    "layers": 2,
+    "edge_connectors": [{"ref": "J1", "side": "left"}]
+  },
+  "notes": [
+    "ISP 引脚按 AVR 6 针标准：1 MISO、2 VCC、3 SCK、4 MOSI、5 RESET、6 GND",
+    "ATtiny85：MOSI = PB0（5 脚）、MISO = PB1（6 脚）、SCK = PB2（7 脚），PB4（3 脚）不用",
+    "LED 电流约 (5 − 2.0) V / 330 Ω ≈ 9 mA"
+  ]
+}
