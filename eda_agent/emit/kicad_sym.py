@@ -284,10 +284,22 @@ def parse_symbol(lib_id: str, raw_text: str) -> SymbolDef:
 
 
 _PROP_NAME = re.compile(r'\(property\s+"((?:[^"\\]|\\.)*)"')
+_PROP_VALUE = re.compile(r'\(property\s+"(?:[^"\\]|\\.)*"\s+"((?:[^"\\]|\\.)*)"')
+# KiCad 10 的 LIB_SYMBOL::Flatten()（eeschema/lib_symbol.cpp）：这几个字段下一层写的是空字符串时
+# 保留上一层的，不拿空的去盖。MAX485E → MAX481E 的 Footprint 都是空的，最上面的 LTC2850xS8 写着
+# SOIC-8；照盖不误的话 ERC 报「符号与库里的不一致」（rs485_transceiver 从 M1 起一直带着这条警告）。
+_KEEP_WHEN_EMPTY = frozenset(
+    {"Reference", "Value", "Footprint", "Datasheet", "Description", "ki_keywords", "ki_fp_filters"}
+)
 
 
 def _prop_name(text: str) -> str:
     m = _PROP_NAME.match(text)
+    return m.group(1) if m else ""
+
+
+def _prop_value(text: str) -> str:
+    m = _PROP_VALUE.match(text)
     return m.group(1) if m else ""
 
 
@@ -296,13 +308,18 @@ def _props(raw: str) -> list[str]:
 
 
 def merge_properties(levels: list[str]) -> list[str]:
-    """从最上面的父符号往下逐层合并属性：上一层的按原顺序保留，同名的换成下一层的，
-    下一层多出来的接在后面（KiCad 自己展平派生符号时也是这样）。"""
+    """从最上面的父符号往下逐层合并属性：上一层的按原顺序保留，同名的换成下一层的
+    （_KEEP_WHEN_EMPTY 里的字段下一层是空的就不换），下一层多出来的接在后面。
+    KiCad 按名字比对字段，顺序不影响 ERC。"""
     merged = _props(levels[0])
     for raw in levels[1:]:
-        own = _props(raw)
-        by_name = {_prop_name(p): p for p in own}
         names = {_prop_name(p) for p in merged}
+        own = [
+            p
+            for p in _props(raw)
+            if _prop_value(p) or _prop_name(p) not in _KEEP_WHEN_EMPTY or _prop_name(p) not in names
+        ]
+        by_name = {_prop_name(p): p for p in own}
         merged = [by_name.get(_prop_name(p), p) for p in merged]
         merged += [p for p in own if _prop_name(p) not in names]
     return merged

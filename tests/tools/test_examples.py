@@ -57,3 +57,6 @@ def test_multi_unit_and_derived_symbols_come_from_the_real_library() -> None:
     assert "(extends" not in max485.raw
     assert max485.properties["Value"] == "MAX485E"
     assert '(symbol "MAX485E_' in max485.raw, "单元的名字要换成子符号的名字"
+    # 两层派生的 Footprint 都是空的：和 KiCad 一样保留最上面那层写的，否则 ERC 报符号与库不一致
+    assert max485.properties["Footprint"] == "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+    assert "no low-power shutdown" in max485.properties["Description"]

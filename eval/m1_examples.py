@@ -55,6 +55,8 @@ def check_example(design_path: Path, out: Path, trace: TraceWriter) -> dict[str,
         gates.append(
             GateReport(f"schematic_quality:{key}", quality.passed, quality.counts, quality.findings)
         )
+        if key == "root" and emitted.schematic.root is not None:
+            continue  # 根页只有图纸框、没有符号，「符号在图纸内」的检查对它没有意义
         inside = layout_gate(sheet)
         gates.append(
             GateReport(f"schematic_layout:{key}", inside.passed, inside.counts, inside.findings)

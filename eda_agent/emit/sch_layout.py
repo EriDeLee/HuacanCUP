@@ -27,6 +27,8 @@ GAP = 1.27
 TEXT_H = 1.27
 CHAR_W = 1.05
 TAP_PITCH = 10.16
+ARROW_LEN = 1.8  # 虚线箭头的实心三角：长、半宽（mm）
+ARROW_HALF = 0.7
 
 Point = tuple[float, float]
 Box = tuple[float, float, float, float]
@@ -205,6 +207,28 @@ class Line:
     pts: tuple[Point, ...]
     arrow: bool = False
 
+    def head(self) -> list[Point]:
+        """最后一段末端的实心三角（尖在最后一点），首尾是同一点。"""
+        (ax, ay), (bx, by) = self.pts[-2], self.pts[-1]
+        length = math.hypot(bx - ax, by - ay) or 1.0
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        base = (bx - ux * ARROW_LEN, by - uy * ARROW_LEN)
+        left = (base[0] - uy * ARROW_HALF, base[1] + ux * ARROW_HALF)
+        right = (base[0] + uy * ARROW_HALF, base[1] - ux * ARROW_HALF)
+        return [(bx, by), left, right, (bx, by)]
+
+    def boxes(self) -> list[Box]:
+        """每一段的外框，有箭头时再加箭头的外框。"""
+        out = [
+            (min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1]))
+            for a, b in zip(self.pts, self.pts[1:], strict=False)
+        ]
+        if self.arrow and len(self.pts) >= 2:
+            head = self.head()
+            xs, ys = [p[0] for p in head], [p[1] for p in head]
+            out.append((min(xs), min(ys), max(xs), max(ys)))
+        return out
+
 
 def _move(p: Point, dx: float, dy: float) -> Point:
     return r4(p[0] + dx), r4(p[1] + dy)
@@ -220,6 +244,9 @@ class Prims:
     notes: list[Note] = field(default_factory=list)
     frames: list[Frame] = field(default_factory=list)
     lines: list[Line] = field(default_factory=list)
+    # KiCad 自己画、不由这里写出的字（根页图纸框上方的框名、下方的文件名）：(文字, 外框)。
+    # 只给找路和检查关当文字看，免得线和箭头压上去（uno_like_board 的箭头曾压住框名）
+    extra_texts: list[tuple[str, Box]] = field(default_factory=list)
 
     def add_wire(self, a: Point, b: Point) -> None:
         a, b = (r4(a[0]), r4(a[1])), (r4(b[0]), r4(b[1]))
@@ -239,6 +266,7 @@ class Prims:
         self.lines += [
             Line(tuple(_move(p, dx, dy) for p in ln.pts), ln.arrow) for ln in other.lines
         ]
+        self.extra_texts += [(t, _shift(b, dx, dy)) for t, b in other.extra_texts]
 
     def boxes(self) -> list[Box]:
         out: list[Box] = []
@@ -256,6 +284,7 @@ class Prims:
         for ln in self.lines:
             xs, ys = [p[0] for p in ln.pts], [p[1] for p in ln.pts]
             out.append((min(xs) - 0.8, min(ys) - 0.8, max(xs) + 0.8, max(ys) + 0.8))
+        out += [b for _, b in self.extra_texts]
         return out
 
     def bbox(self) -> Box:
@@ -1186,12 +1215,25 @@ def _lay_vertical(
             groups[-1].append(t)
         else:
             groups.append([t])
+    placed: list[Box] = []  # 这一侧已经放好的电源符号和它们的字
     for g in groups:
         net = g[0][0].end.net
         # 电源箭头一律朝上、地一律朝下（用户 2026-11-01）。引脚朝向和符号方向相反时（比如电源接在
         # 下面的引脚上），线先多走一段，再拐到外侧放符号，而不是把符号倒过来画。
         natural = (ctx.kind(net) == "ground") == (s > 0)
         reach = STUB if natural else 2 * STUB
+        if natural:
+            # 相邻两个引脚接不同的电源时，两个符号的名字可能叠在一起（uno_like_board 的 CH340C：
+            # +5V 和 CH340_V3）：后一个的线拉长几格，名字错开高度
+            mid_x = min(
+                (px for _, px, _ in g), key=lambda x: abs(x - sum(t[1] for t in g) / len(g))
+            )
+            for extra in (0.0, 2 * GRID, 4 * GRID, 6 * GRID, 8 * GRID):
+                probe = _power_symbol(ctx, net, mid_x, r4(g[0][2] + s * (reach + extra)))
+                boxes = [probe.box, *probe.text_boxes()]
+                if not any(_overlap(a, b) for a in boxes for b in placed):
+                    break
+            reach += extra
         ends = [(px, r4(py + s * reach)) for _, px, py in g]
         for (_, px, py), end in zip(g, ends, strict=True):
             p.add_wire((px, py), end)
@@ -1205,7 +1247,9 @@ def _lay_vertical(
                     key=lambda k: abs(ends[k][0] - sum(e[0] for e in ends) / len(ends)),
                 )
             ]
-            p.symbols.append(_power_symbol(ctx, net, mid[0], mid[1]))
+            sym = _power_symbol(ctx, net, mid[0], mid[1])
+            p.symbols.append(sym)
+            placed += [sym.box, *sym.text_boxes()]
             continue
         xs = [e[0] for e in ends]
         outward = 1 if sum(xs) / len(xs) >= cx else -1

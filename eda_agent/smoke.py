@@ -142,6 +142,11 @@ class Smoke:
                     quality = layout_quality(page.drawing)
                     self._record(f"schematic_quality-{page.key}", quality)
                     reports.append(quality)
+                if self.project.root is not None:
+                    # 分页时根页的框图也查：框之间的导线、电源说明、虚线箭头（ADR-0014）
+                    quality = layout_quality(self.project.root)
+                    self._record("schematic_quality-root", quality)
+                    reports.append(quality)
             passed = all(r.passed for r in reports)
             counts: dict[str, int] = {}
             for r in reports:
@@ -331,7 +336,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--schematic", choices=SCHEMATIC_MODES, default="engine")
     args = parser.parse_args(argv)
     routers = tuple(dict.fromkeys([args.primary, *args.routers]))
-    summary = Smoke(args.design, args.runs, args.schematic).run(routers, args.primary)
+    # 换成绝对路径：KiCad 自带 Python 的步骤在运行目录里跑，相对路径会指到不存在的文件，
+    # pcbnew 读不到板子时直接崩溃（退出码 0xC0000005），看不出原因（2026-11-01 实测）
+    summary = Smoke(args.design.resolve(), args.runs.resolve(), args.schematic).run(
+        routers, args.primary
+    )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print(f"\n冒烟{'通过' if summary['passed'] else '失败'}：{summary['run_id']}")
     return 0 if summary["passed"] else 1

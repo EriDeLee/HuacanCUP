@@ -20,7 +20,7 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from eda_agent.emit.sch_layout import GRID, Box, Point, Prims, Wire, r4
+from eda_agent.emit.sch_layout import GRID, Box, Label, Point, Prims, Wire, r4
 
 Node = tuple[int, int]
 Seg = tuple[int, int, int, int]  # 网格坐标；只有横线和竖线
@@ -33,6 +33,8 @@ MAX_BENDS = 4
 MAX_LEN_MM = 160.0
 DETOUR = 1.4  # 路长最多是两头直角距离的这么多倍，再加 DETOUR_MM
 DETOUR_MM = 12.7
+CROSS = 12.0  # 说明用的箭头穿过一根导线的代价（导线本身不许交叉）
+MAX_ARROW_CROSSINGS = 3
 _DIRS: tuple[Node, ...] = ((1, 0), (-1, 0), (0, 1), (0, -1))  # 0/1、2/3 互为反方向
 
 
@@ -144,7 +146,8 @@ class _Wires:
 def hard_nodes(prims: Prims, extra: Sequence[Box] = ()) -> set[Node]:
     """哪条网络的线都不能走的网格点。
 
-    包括符号、文字、NC 叉、引脚端点、额外的障碍（如根页上的图纸框）。
+    包括符号、文字（含 KiCad 自己画的框名、文件名）、NC 叉、引脚端点、
+    额外的障碍（如根页上的图纸框）。
     """
     out: set[Node] = set()
     for s in prims.symbols:
@@ -159,6 +162,8 @@ def hard_nodes(prims: Prims, extra: Sequence[Box] = ()) -> set[Node]:
         out.update(box_nodes((x - 1.3, y - 1.3, x + 1.3, y + 1.3), 0.0))
     for note in prims.notes:
         out.update(box_nodes(note.box, 0.3))
+    for _, tb in prims.extra_texts:
+        out.update(box_nodes(tb, 0.3))
     for b in extra:
         out.update(box_nodes(b, 0.6))
     return out
@@ -170,8 +175,14 @@ def search(
     blocked: Callable[[Node], bool],
     near: set[Node],
     bounds: tuple[int, int, int, int],
+    *,
+    blocked_move: Callable[[Node, int], bool] | None = None,
+    step_cost: Callable[[Node], float] | None = None,
 ) -> list[Node] | None:
-    """A*：从 start 走到 targets 里任何一点，返回经过的网格点（含两头）；走不到返回 None。"""
+    """A*：从 start 走到 targets 里任何一点，返回经过的网格点（含两头）；走不到返回 None。
+
+    blocked_move(m, k)：沿方向 k（_DIRS 的序号）走进 m 行不行；step_cost(m)：走进 m 的额外代价。
+    """
     if not targets:
         return None
     tx0 = min(n[0] for n in targets)
@@ -210,7 +221,11 @@ def search(
             m = (n[0] + dx, n[1] + dy)
             if not (bx0 <= m[0] <= bx1 and by0 <= m[1] <= by1) or blocked(m):
                 continue
+            if blocked_move is not None and blocked_move(m, k):
+                continue
             ng = g + 1.0 + (NEAR if m in near else 0.0) + (BEND if d not in (-1, k) else 0.0)
+            if step_cost is not None:
+                ng += step_cost(m)
             key = (m, k)
             if ng < best.get(key, math.inf) - 1e-9:
                 best[key] = ng
@@ -263,15 +278,35 @@ def _commit(prims: Prims, path: list[Node]) -> int:
     return len(pts) - 1
 
 
-def acceptable(path: list[Node]) -> bool:
-    """不要太绕：拐弯不超过 MAX_BENDS 次，总长不超过 MAX_LEN_MM，也不比两头的直角距离长出太多。"""
+def acceptable(
+    path: list[Node],
+    *,
+    detour: float = DETOUR,
+    slack: float = DETOUR_MM,
+    max_len: float = MAX_LEN_MM,
+) -> bool:
+    """不要太绕：拐弯不超过 MAX_BENDS 次，总长不超过 max_len，也不比两头的直角距离长出太多。"""
     direct = abs(path[0][0] - path[-1][0]) + abs(path[0][1] - path[-1][1])
     length = (len(path) - 1) * GRID
     bends = len(corners(path)) - 2
     # 2026-11-01 第一次出图时 i2c_temp_sensor 的 SDA 绕到连接器左边再折回来，这种宁可用标签
-    return (
-        bends <= MAX_BENDS and length <= MAX_LEN_MM and length <= DETOUR * direct * GRID + DETOUR_MM
-    )
+    return bends <= MAX_BENDS and length <= max_len and length <= detour * direct * GRID + slack
+
+
+def _label_nodes(lb: Label, *, same_net: bool) -> set[Node]:
+    """标签的字挡住的网格点。
+
+    同一网络的本页标签，字底下那条线上的点不挡：标签本来就该坐在线上。uno_like_board 的 BUS_A
+    曾为了躲开自己的名字，先往下拐一格再平着走，名字底下空着。层次标签的旗形框把线包在中间，照样全挡。
+    """
+    nodes = set(box_nodes(lb.box, 0.3))
+    if not same_net or lb.shape:
+        return nodes
+    if lb.rot == 90:
+        gx = _gi(lb.x)
+        return {n for n in nodes if n[0] != gx}
+    gy = _gi(lb.y)
+    return {n for n in nodes if n[1] != gy}
 
 
 def _spread(nodes: list[Node]) -> int:
@@ -331,10 +366,15 @@ def _route_net(
         k = min(pending, key=lambda j: (dist(j), j))
         start_label, start = terms[k]
         texts: set[Node] = set()
+        own: set[Node] = set()  # 这个网络自己的标签：挡路，但不算「贴着障碍」
         for lb in prims.labels:
-            if lb is not start_label:
-                texts.update(box_nodes(lb.box, 0.3))
-        base = hard | wired | texts
+            if lb is start_label:
+                continue
+            if lb.text == text:
+                own |= _label_nodes(lb, same_net=True)
+            else:
+                texts |= _label_nodes(lb, same_net=False)
+        base = hard | wired | texts | own
         targets = tree - base
         near = hard_near | _neighbors(wired | texts)
 
@@ -381,7 +421,11 @@ def _route_all(
 
 
 def connect_labels(
-    prims: Prims, *, obstacles: Sequence[Box] = (), keep_name: bool = True
+    prims: Prims,
+    *,
+    obstacles: Sequence[Box] = (),
+    keep_name: bool = True,
+    limits: Box | None = None,
 ) -> RouteStats:
     """把 prims 里同名标签的端点用导线连起来（就地修改 prims）。obstacles：额外不能穿过的区域。
 
@@ -401,7 +445,7 @@ def connect_labels(
         return RouteStats()
     hard = hard_nodes(prims, obstacles)
     hard_near = _neighbors(hard)
-    bounds = bounds_of(prims, obstacles)
+    bounds = clip_bounds(bounds_of(prims, obstacles), limits)
     start = (list(prims.wires), list(prims.junctions), list(prims.labels))
     stats, unfinished = _route_all(prims, multi, hard, hard_near, bounds, keep_name)
     if not unfinished:
@@ -421,6 +465,18 @@ def connect_labels(
     return stats
 
 
+def clip_bounds(bounds: tuple[int, int, int, int], limits: Box | None) -> tuple[int, int, int, int]:
+    """搜索范围再限制在 limits（毫米）以内，比如根页上不许走进页边距。"""
+    if limits is None:
+        return bounds
+    return (
+        max(bounds[0], math.ceil(limits[0] / GRID)),
+        max(bounds[1], math.ceil(limits[1] / GRID)),
+        min(bounds[2], math.floor(limits[2] / GRID)),
+        min(bounds[3], math.floor(limits[3] / GRID)),
+    )
+
+
 def route_free(
     prims: Prims,
     start: Node,
@@ -428,18 +484,51 @@ def route_free(
     *,
     obstacles: Sequence[Box] = (),
     avoid: set[Node] | None = None,
+    limits: Box | None = None,
 ) -> list[Node] | None:
-    """不带电气意义的线（根页的电源流向箭头）找路：不穿过符号、文字、导线和 avoid 里的点。"""
+    """不带电气意义的线（根页的电源流向箭头）找路：不穿过符号、文字、导线和 avoid 里的点。
+
+    也不要太绕，但比导线宽松（它只是说明，不用跟着引脚走）：
+    绕大半张纸的不画（uno_like_board 实测）。
+    """
     hard = hard_nodes(prims, obstacles)
     for lb in prims.labels:
         hard.update(box_nodes(lb.box, 0.3))
-    base = hard | set(_Wires(prims.wires).cover) | (avoid or set())
-    near = _neighbors(base)
+    info = _Wires(prims.wires)
+    # 箭头可以垂直穿过导线（uno_like_board 的温度传感器框三面都被导线围住），
+    # 但不能沿着导线走、不能碰导线的端点和连接点；每穿过一根加 CROSS 分，能不穿就不穿
+    horizontal: set[Node] = set()
+    vertical: set[Node] = set()
+    ends: set[Node] = {n for j in prims.junctions if (n := _node(j)) is not None}
+    for s in info.segs:
+        if s is None:
+            continue
+        ends.update({(s[0], s[1]), (s[2], s[3])})
+        (horizontal if s[1] == s[3] else vertical).update(_nodes(s))
+    base = hard | ends | (avoid or set())
+    near = _neighbors(base | horizontal | vertical)
 
     def blocked(m: Node) -> bool:
-        return m in base
+        return m in base or (m in horizontal and m in vertical)
 
-    path = search(start, targets - base, blocked, near, bounds_of(prims, obstacles))
-    if path is None or len(corners(path)) - 2 > MAX_BENDS:
+    def along(m: Node, k: int) -> bool:
+        return (m in horizontal and k < 2) or (m in vertical and k >= 2)
+
+    def crossing(m: Node) -> float:
+        return CROSS if m in horizontal or m in vertical else 0.0
+
+    bounds = clip_bounds(bounds_of(prims, obstacles), limits)
+    path = search(
+        start,
+        targets - base - horizontal - vertical,
+        blocked,
+        near,
+        bounds,
+        blocked_move=along,
+        step_cost=crossing,
+    )
+    if path is None or not acceptable(path, detour=1.6, slack=40.0, max_len=260.0):
+        return None
+    if sum(1 for m in path if m in horizontal or m in vertical) > MAX_ARROW_CROSSINGS:
         return None
     return path

@@ -8,15 +8,12 @@
 
 from __future__ import annotations
 
-import math
 import uuid
 from dataclasses import dataclass, field
 
-from eda_agent.emit.sch_layout import Drawing, Field, Line, SymbolInst, flip_justify
+from eda_agent.emit.sch_layout import Drawing, Field, SymbolInst, flip_justify
 
 FONT = "(font (size 1.27 1.27))"
-ARROW_LEN = 1.8
-ARROW_HALF = 0.7
 
 
 def _f(v: float) -> str:
@@ -91,17 +88,6 @@ def _polyline(pts: list[tuple[float, float]], ids: _Ids, *, dashed: bool, filled
     fill = " (fill (type outline))" if filled else ""
     kind = "dash" if dashed else "solid"
     return f"\t(polyline (pts {xy}) (stroke (width 0) (type {kind})){fill} (uuid {_q(ids.next())}))"
-
-
-def _arrow_head(line: Line) -> list[tuple[float, float]]:
-    """折线最后一段末端的实心三角箭头（尖在最后一点）。"""
-    (ax, ay), (bx, by) = line.pts[-2], line.pts[-1]
-    length = math.hypot(bx - ax, by - ay) or 1.0
-    ux, uy = (bx - ax) / length, (by - ay) / length
-    base = (bx - ux * ARROW_LEN, by - uy * ARROW_LEN)
-    left = (base[0] - uy * ARROW_HALF, base[1] + ux * ARROW_HALF)
-    right = (base[0] + uy * ARROW_HALF, base[1] - ux * ARROW_HALF)
-    return [(bx, by), left, right, (bx, by)]
 
 
 def _property(
@@ -262,7 +248,7 @@ def render_page(
     for ln in p.lines:
         out.append(_polyline(list(ln.pts), ids, dashed=True, filled=False))
         if ln.arrow and len(ln.pts) >= 2:
-            out.append(_polyline(_arrow_head(ln), ids, dashed=False, filled=True))
+            out.append(_polyline(ln.head(), ids, dashed=False, filled=True))
     for inst in p.symbols:
         ref = f"{inst.prefix}{counter.take():03d}" if inst.power else inst.ref
         out.append(_symbol(inst, ids, instance_path, project, ref))

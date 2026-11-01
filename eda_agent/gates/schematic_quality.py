@@ -1,7 +1,7 @@
 """版面引擎的两道确定性检查（AGENTS.md 原则 1：通过与否只由这里的代码决定）。
 
 - layout_quality：画出来的图有没有符号互相压住、文字压住符号或别的文字、导线穿过元件本体、
-  导线从文字上穿过（ADR-0014 加的）。
+  导线或根页的虚线箭头从文字上穿过（ADR-0014 加的）。
   导线交叉只计数，不判失败（交叉本身不是错，但数量会写进报告，方便比较版面好坏）。
 - netlist_gate：KiCad 重新导出的网表，和输入的网络逐个对得上；没有拆开的网络，也没有短路。
 """
@@ -72,6 +72,7 @@ def layout_quality(drawing: Drawing) -> GateReport:
     texts = [(s.ref, tb) for s in p.symbols for tb in s.text_boxes()]
     texts += [(lb.text, lb.box) for lb in p.labels]
     texts += [(n.text, n.box) for n in p.notes]
+    texts += list(p.extra_texts)  # 根页图纸框的框名、文件名
     for name, tb in texts:
         for s in parts:
             if s.ref != name and _overlap(tb, s.box, 0.15):
@@ -90,6 +91,10 @@ def layout_quality(drawing: Drawing) -> GateReport:
         for name, tb in texts:
             if _overlap(wb, tb, 0.15):
                 findings.append({"type": "wire_through_text", "items": [name]})
+    # 根页的电源流向虚线箭头（连同箭头的三角）也不许压字：曾经盖住过图纸框的框名
+    for ln in p.lines:
+        hit = {name for lb in ln.boxes() for name, tb in texts if _overlap(lb, tb, 0.15)}
+        findings += [{"type": "line_through_text", "items": [name]} for name in sorted(hit)]
     counts = {
         "parts": len(parts),
         "wires": len(p.wires),

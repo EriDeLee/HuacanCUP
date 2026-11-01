@@ -28,7 +28,9 @@ from eda_agent.emit.sch_layout import (
     PAGE_MARGIN,
     PAPERS,
     STUB,
+    TEXT_H,
     TITLE_RESERVE,
+    Box,
     Ctx,
     Drawing,
     Frame,
@@ -51,6 +53,7 @@ from eda_agent.emit.sch_layout import (
     layout_content,
     r4,
     snap,
+    text_box,
     text_width,
     usable_area,
     used_libs,
@@ -63,6 +66,7 @@ UNASSIGNED = "unassigned"
 DRIVERS = {"output", "power_out", "tri_state", "open_collector", "open_emitter", "bidirectional"}
 SHEET_GAP_Y = GRID * 14
 SHEET_GAP_X = GRID * 8
+MAX_ARROWS_PER_RAIL = 3  # 一个电源最多给几块画箭头，再多就只写在框下面
 FRAME_PAD = GRID * 3  # 方框和里面的元件之间留的空
 TITLE_GAP = GRID * 3  # 方框顶上写块名的那一行
 BLOCK_GAP_Y = GRID * 6
@@ -366,13 +370,35 @@ def name_w(nets: list[str]) -> float:
     return max((len(display_name(n)) for n in nets), default=0) * CHAR_W
 
 
+def _pin_nets(c: _Ctx) -> dict[tuple[str, str], Net]:
+    return {(r, p): net for net in c.design.nets for r, p in net.nodes}
+
+
 def _providers(c: _Ctx, net: Net) -> set[str]:
-    """哪几块把这个电源供给别的块。依次看：有电源输出脚接在上面的块；板外送电进来时，
-    板边连接器所在的块；再没有，任何有连接器接在上面的块。只在别的块也用到这个电源时才算。"""
+    """哪几块把这个电源供给别的块。依次看：
+    1. 有电源输出脚接在上面的块（稳压器的输出）；
+    2. 电是穿过一个两脚元件（保险丝、磁珠、0 Ω 电阻）从另一个电源网络过来的，那个网络上有
+       电源输出脚：两脚元件所在的块（uno_like_board 的 +5V 来自 USB 口的 VBUS、穿过保险丝 F1）；
+    3. 板外送电进来：左边（再右边）板边连接器所在的块，再没有就任何有连接器接在上面的块。
+    只在别的块也用到这个电源时才算。"""
     users = {c.page_of[r] for r, _ in net.nodes}
     if len(users) < 2 or infer_kind(net.name) == "ground":
         return set()
     out = {c.page_of[r] for r, p in net.nodes if _etype(c.syms, r, p) == "power_out"}
+    if not out:
+        pin_net = _pin_nets(c)
+        for r, p in net.nodes:
+            pins = [q.number for q in c.syms[r].pins if not q.hidden]
+            if len(pins) != 2:
+                continue
+            other = pin_net.get((r, pins[1] if pins[0] == p else pins[0]))
+            if (
+                other is not None
+                and other.name != net.name
+                and net_kind(other, c.syms) == "power"
+                and any(_etype(c.syms, rr, pp) == "power_out" for rr, pp in other.nodes)
+            ):
+                out.add(c.page_of[r])
     if not out and net.external_supply:
         # 板左边的连接器算电进来的地方（信号和电都按从左往右画）；overcurrent_cutoff 的 VBAT
         # 从左边的电池端子进、从右边的负载端子出，只有电池那一块算供出
@@ -405,6 +431,21 @@ def rails_text(rails: list[tuple[str, bool]]) -> str:
     if not rails:
         return ""
     return "电源：" + "、".join(display_name(n) + ("（出）" if out else "") for n, out in rails)
+
+
+def sheet_texts(s: SheetSym) -> list[tuple[str, Box]]:
+    """KiCad 在图纸框上方写框名、下方写文件名（位置和 sch_writer 写的一致）。
+    文件名前面 KiCad 会加「文件：」或「File: 」（看界面语言），宽度取宽的那个。"""
+    name = text_box(s.x, s.y - 0.7, s.name, "left bottom")
+    width = max(text_width("文件：" + s.file), text_width("File: " + s.file))
+    top = s.y + s.h + 0.6 - 0.1
+    return [(s.name, name), (s.file, (s.x, top, s.x + width, top + TEXT_H + 0.2))]
+
+
+def _hits(box: Box, obstacles: list[Box]) -> bool:
+    return any(
+        box[0] < o[2] and o[0] < box[2] and box[1] < o[3] and o[1] < box[3] for o in obstacles
+    )
 
 
 def _root_sheet(c: _Ctx, ports: dict[str, dict[str, str]]) -> tuple[Drawing, RootExtras]:
@@ -481,6 +522,7 @@ def _root_sheet(c: _Ctx, ports: dict[str, dict[str, str]]) -> tuple[Drawing, Roo
             extras.sheets.append(
                 SheetSym(key, f"{key}.kicad_sch", sx, sy, w, h, page_no[key], tuple(pins))
             )
+            prims.extra_texts += sheet_texts(extras.sheets[-1])
             line_y = sy + h + GRID * 3
             for text in (c.purposes.get(key, ""), rails_text(rails[key])):
                 if text:
@@ -489,8 +531,10 @@ def _root_sheet(c: _Ctx, ports: dict[str, dict[str, str]]) -> tuple[Drawing, Roo
             y = sy + h + SHEET_GAP_Y
         x = sx + width + SHEET_GAP_X
     boxes = [(s.x, s.y, s.x + s.w, s.y + s.h) for s in extras.sheets]
-    stats = vars(connect_labels(prims, obstacles=boxes, keep_name=False))
-    _power_arrows(c, prims, extras, rails)
+    # 根页不居中，坐标就是纸上的位置：线和箭头都不许走进页边距
+    limits = (PAGE_MARGIN, PAGE_MARGIN, 10_000.0, 10_000.0)
+    stats = vars(connect_labels(prims, obstacles=boxes, keep_name=False, limits=limits))
+    _power_arrows(c, prims, extras, rails, limits)
     right_edge = max(b[2] for b in prims.boxes() + boxes)
     bottom = max(b[3] for b in prims.boxes() + boxes) + GRID * 2
     for paper, (pw, ph) in PAPERS.items():
@@ -499,17 +543,31 @@ def _root_sheet(c: _Ctx, ports: dict[str, dict[str, str]]) -> tuple[Drawing, Roo
     raise ValueError("根页的框图在 A2 上也放不下，功能块太多了")
 
 
-def _ring(box: tuple[float, float, float, float], gap: float) -> set[tuple[int, int]]:
-    """框外一圈（离框 gap 毫米）上的网格点：箭头从这里出发、在这里结束。"""
-    x0, y0 = math.floor((box[0] - gap) / GRID), math.floor((box[1] - gap) / GRID)
-    x1, y1 = math.ceil((box[2] + gap) / GRID), math.ceil((box[3] + gap) / GRID)
-    out = {(x, y0) for x in range(x0, x1 + 1)} | {(x, y1) for x in range(x0, x1 + 1)}
-    out |= {(x0, y) for y in range(y0, y1 + 1)} | {(x1, y) for y in range(y0, y1 + 1)}
+def _ring(
+    box: tuple[float, float, float, float], gap: float
+) -> dict[tuple[int, int], tuple[float, float]]:
+    """框外一圈（离框 gap 毫米、不含四个角）上的网格点 → 从这一点垂直碰到框边的那一点。
+
+    箭头从源框边上垂直出来、垂直扎进目标框边，看得出是从哪块指向哪块。
+    """
+    out: dict[tuple[int, int], tuple[float, float]] = {}
+    top, bottom = math.floor((box[1] - gap) / GRID), math.ceil((box[3] + gap) / GRID)
+    left, right = math.floor((box[0] - gap) / GRID), math.ceil((box[2] + gap) / GRID)
+    for x in range(math.ceil(box[0] / GRID) + 1, math.floor(box[2] / GRID)):
+        out[(x, top)] = (r4(x * GRID), r4(box[1] - 0.3))
+        out[(x, bottom)] = (r4(x * GRID), r4(box[3] + 0.3))
+    for y in range(math.ceil(box[1] / GRID) + 1, math.floor(box[3] / GRID)):
+        out[(left, y)] = (r4(box[0] - 0.3), r4(y * GRID))
+        out[(right, y)] = (r4(box[2] + 0.3), r4(y * GRID))
     return out
 
 
 def _power_arrows(
-    c: _Ctx, prims: Prims, extras: RootExtras, rails: dict[str, list[tuple[str, bool]]]
+    c: _Ctx,
+    prims: Prims,
+    extras: RootExtras,
+    rails: dict[str, list[tuple[str, bool]]],
+    limits: tuple[float, float, float, float],
 ) -> None:
     """电源从哪块供给哪块：每对（供出的块 → 用它的块）画一根虚线箭头，旁边写电源名。
 
@@ -522,9 +580,17 @@ def _power_arrows(
         for net, provides in rails[src]:
             if not provides or infer_kind(net) == "ground":
                 continue
-            for dst in c.order:
-                if dst != src and any(n == net and not out for n, out in rails[dst]):
-                    pairs.setdefault((src, dst), []).append(display_name(net))
+            users = [
+                dst
+                for dst in c.order
+                if dst != src and any(n == net and not out for n, out in rails[dst])
+            ]
+            # 供给太多块的电源（uno_like_board 的 +5V 供 6 块）画箭头只会满页都是虚线，
+            # 只靠框下那行「电源：……」说明
+            if len(users) > MAX_ARROWS_PER_RAIL:
+                continue
+            for dst in users:
+                pairs.setdefault((src, dst), []).append(display_name(net))
 
     def gap(pair: tuple[str, str]) -> tuple[float, tuple[str, str]]:
         a, b = boxes[pair[0]], boxes[pair[1]]
@@ -532,29 +598,53 @@ def _power_arrows(
         dy = max(0.0, b[1] - a[3], a[1] - b[3])
         return dx + dy, pair
 
+    def clear(
+        ring: dict[tuple[int, int], tuple[float, float]], *, arrow: bool
+    ) -> dict[tuple[int, int], tuple[float, float]]:
+        """去掉那些「从框边到这一点的一小段（终点那头连箭头）」会压到字的点：
+        框名就在框的左上角上方，箭头从那里扎进去会盖住框名（uno_like_board、attiny85 实测）。"""
+        texts = [n.box for n in prims.notes] + [lb.box for lb in prims.labels]
+        texts += [b for _, b in prims.extra_texts]
+        out = {}
+        for n, edge in ring.items():
+            pt = (r4(n[0] * GRID), r4(n[1] * GRID))
+            stub = Line((pt, edge), arrow) if arrow else Line((edge, pt))
+            if not any(_hits(b, texts) for b in stub.boxes()):
+                out[n] = edge
+        return out
+
     used: set[tuple[int, int]] = set()
     # 先画离得近的：远的那根能绕开近的，反过来近的常被远的那根挡死（attiny85 实测）
     for (src, dst), names in sorted(pairs.items(), key=lambda kv: gap(kv[0])):
-        end_ring = _ring(boxes[dst], GRID * 2)
+        end_ring = clear(_ring(boxes[dst], GRID * 2), arrow=True)
+        start_ring = clear(_ring(boxes[src], GRID * 2), arrow=False)
         tx = (boxes[dst][0] + boxes[dst][2]) / 2 / GRID
         ty = (boxes[dst][1] + boxes[dst][3]) / 2 / GRID
         avoid = used | _note_nodes(prims)
         # 起点从源框外一圈上离目标最近的几个点里挑：最近的那个可能正好被别的线或字挡住
         starts = sorted(
-            (n for n in _ring(boxes[src], GRID * 2) if n not in avoid),
+            (n for n in start_ring if n not in avoid),
             key=lambda n: (abs(n[0] - tx) + abs(n[1] - ty), n),
         )
         path = None
         for start in starts[:: max(1, len(starts) // 12)][:12]:
-            path = route_free(prims, start, end_ring, obstacles=list(boxes.values()), avoid=avoid)
+            path = route_free(
+                prims,
+                start,
+                set(end_ring),
+                obstacles=list(boxes.values()),
+                avoid=avoid,
+                limits=limits,
+            )
             if path is not None:
                 break
         if path is None:
             continue
         pts = corners(path)
-        prims.lines.append(Line(tuple((r4(n[0] * GRID), r4(n[1] * GRID)) for n in pts), True))
+        mm = [start_ring[pts[0]]] + [(r4(n[0] * GRID), r4(n[1] * GRID)) for n in pts]
+        prims.lines.append(Line((*mm, end_ring[pts[-1]]), True))
         used |= set(path) | {(n[0] + dx, n[1] + dy) for n in path for dx, dy in _AROUND}
-        _label_arrow(prims, pts, "、".join(names))
+        _label_arrow(prims, pts, "、".join(names), list(boxes.values()))
 
 
 _AROUND = ((1, 0), (-1, 0), (0, 1), (0, -1))
@@ -570,19 +660,38 @@ def _note_nodes(prims: Prims) -> set[tuple[int, int]]:
     return out
 
 
-def _label_arrow(prims: Prims, pts: list[tuple[int, int]], text: str) -> None:
-    """箭头最长的一段横线上方写电源名；没有够长的横线就写在最长那段竖线的右边。"""
-    segs = list(zip(pts, pts[1:], strict=False))
-    if not segs:
-        return
-    (a, b) = max(segs, key=lambda s: abs(s[0][0] - s[1][0]) + abs(s[0][1] - s[1][1]))
-    if a[1] == b[1]:
-        x = min(a[0], b[0]) * GRID + GRID
-        y = a[1] * GRID - GRID * 2
-    else:
-        x = a[0] * GRID + GRID
-        y = (a[1] + b[1]) / 2 * GRID - GRID / 2
-    prims.notes.append(Note(text, r4(x), r4(y)))
+def _label_arrow(
+    prims: Prims, pts: list[tuple[int, int]], text: str, boxes: list[tuple[float, ...]]
+) -> None:
+    """在箭头旁边写电源名：从最长的一段起，横线写在上方、竖线写在右边或左边，
+    找第一个不压导线、标签、别的字和图纸框的位置；都压东西就不写（框下那行已经写着）。"""
+    segs = sorted(
+        zip(pts, pts[1:], strict=False),
+        key=lambda s: -(abs(s[0][0] - s[1][0]) + abs(s[0][1] - s[1][1])),
+    )
+    obstacles = [
+        (min(w.a[0], w.b[0]), min(w.a[1], w.b[1]), max(w.a[0], w.b[0]), max(w.a[1], w.b[1]))
+        for w in prims.wires
+    ]
+    obstacles += [lb.box for lb in prims.labels] + [n.box for n in prims.notes]
+    obstacles += [b for _, b in prims.extra_texts]
+    obstacles += [b for ln in prims.lines for b in ln.boxes()]
+    obstacles += [(b[0], b[1], b[2], b[3]) for b in boxes]
+    width = text_width(text)
+    for a, b in segs:
+        cands = []
+        if a[1] == b[1]:
+            lo, hi = sorted((a[0], b[0]))
+            for gx in (lo + 1, (lo + hi) // 2, hi - 1 - int(width / GRID)):
+                cands.append((gx * GRID, a[1] * GRID - GRID * 2))
+        else:
+            mid = (a[1] + b[1]) / 2 * GRID - GRID / 2
+            cands += [(a[0] * GRID + GRID, mid), (a[0] * GRID - GRID - width, mid)]
+        for x, y in cands:
+            note = Note(text, r4(x), r4(y))
+            if not _hits(note.box, obstacles):
+                prims.notes.append(note)
+                return
 
 
 # ---------------------------------------------------------------- 写文件

@@ -49,16 +49,21 @@ def test_power_arrows_point_up_and_grounds_point_down(
 def test_no_ground_symbol_sits_right_above_a_supply_symbol(
     tools: ToolsConfig, design_path: Path
 ) -> None:
-    """ne555_astable 的 C2、overcurrent_cutoff 的 U1B：地符号正对着下面的电源符号（用户指出）。"""
-    power = [s for s in _symbols(_project(tools, design_path.parent.name)) if s.prefix == "#PWR"]
-    grounds = [s for s in power if s.lib_id == "power:GND"]
-    supplies = [s for s in power if s.lib_id != "power:GND"]
-    facing = [
-        (g.net, v.net)
-        for g in grounds
-        for v in supplies
-        if abs(g.x - v.x) < 2.6 and 0 < v.y - g.y < 10.0
-    ]
+    """ne555_astable 的 C2、overcurrent_cutoff 的 U1B：地符号正对着下面的电源符号（用户指出）。
+
+    每页单独比：不同页上的坐标互不相干（uno_like_board 分 8 页）。
+    """
+    facing = []
+    for page in _project(tools, design_path.parent.name).pages:
+        power = [s for s in page.drawing.prims.symbols if s.prefix == "#PWR"]
+        grounds = [s for s in power if s.lib_id == "power:GND"]
+        supplies = [s for s in power if s.lib_id != "power:GND"]
+        facing += [
+            (page.key, g.net, v.net, g.x, g.y)
+            for g in grounds
+            for v in supplies
+            if abs(g.x - v.x) < 2.6 and 0 < v.y - g.y < 10.0
+        ]
     assert not facing
 
 

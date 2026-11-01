@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 
 from eda_agent.emit.sch_layout import GRID, Box, Drawing, Label, Prims, SymbolInst, Wire
-from eda_agent.emit.sch_route import _node, _Wires, connect_labels
+from eda_agent.emit.sch_route import _label_nodes, _node, _Wires, connect_labels
 from eda_agent.gates.schematic_quality import layout_quality
 
 G = GRID
@@ -45,6 +45,28 @@ def test_two_labels_facing_each_other_become_one_wire_and_keep_one_name() -> Non
     assert (stats.nets, stats.wired) == (1, 1)
     assert [lb.text for lb in p.labels] == ["SIG"], "连好后只留一个标签当网络名"
     assert _same_wire_group(p, (5 * G, 0.0), (25 * G, 0.0))
+
+
+def test_the_wire_runs_straight_under_the_name_it_keeps() -> None:
+    """留下来当名字的标签就坐在新画的线上，线不用为了躲它先拐一格（uno_like_board 的 BUS_A）。"""
+    p = Prims()
+    _lane(p, "BUS_A", 5 * G, 0.0, 1)
+    _lane(p, "BUS_A", 25 * G, 0.0, -1)
+
+    assert connect_labels(p).wired == 1
+    assert all(w.a[1] == w.b[1] == 0.0 for w in p.wires), "不该有拐弯"
+    assert [(lb.x, lb.y) for lb in p.labels] == [(5 * G, 0.0)]
+    assert _quality(p)["failures"] == 0
+
+
+def test_only_the_own_net_may_run_under_a_label() -> None:
+    """别的网络的线贴着标签底下走，看起来像这个名字是它的；层次标签的旗形框把线包在中间。"""
+    local = Label("SDA", 5 * G, 0.0, 0)
+    under = {n for n in _label_nodes(local, same_net=False) if n[1] == 0}
+    assert under, "别的网络：字底下那条线上的点要挡住"
+    assert not {n for n in _label_nodes(local, same_net=True) if n[1] == 0}
+    port = Label("SDA", 5 * G, 0.0, 0, "output")
+    assert {n for n in _label_nodes(port, same_net=True) if n[1] == 0}
 
 
 def test_the_wire_goes_around_a_symbol_instead_of_through_it() -> None:

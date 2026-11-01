@@ -1,0 +1,153 @@
+{
+  "spec_sha256": null,
+  "blocks": [
+    {"id": "usb", "purpose": "USB-B 口：供电和数据，自恢复保险丝"},
+    {"id": "usb_uart", "purpose": "USB 转串口（CH340C），DTR 经电容自动复位"},
+    {"id": "mcu", "purpose": "ATmega328P：16 MHz 晶振、复位按键、去耦"},
+    {"id": "power", "purpose": "5 V 转 3.3 V（AMS1117-3.3），给温度传感器"},
+    {"id": "rs485", "purpose": "RS-485 收发（MAX485E），终端和失效保护偏置"},
+    {"id": "sensor", "purpose": "LM75B 温度传感器（3.3 V，I²C）"},
+    {"id": "leds", "purpose": "电源指示灯和 PB5 指示灯"},
+    {"id": "headers", "purpose": "扩展排针和 ISP 下载口"}
+  ],
+  "parts": [
+    {
+      "ref": "J1", "block": "usb", "value": "USB_B",
+      "symbol": "Connector:USB_B", "footprint": "Connector_USB:USB_B_OST_USB-B1HSxx_Horizontal"
+    },
+    {"ref": "F1", "block": "usb", "value": "500mA", "symbol": "Device:Polyfuse", "footprint": "Fuse:Fuse_1206_3216Metric"},
+
+    {
+      "ref": "U2", "block": "usb_uart", "value": "CH340C",
+      "symbol": "Interface_USB:CH340C", "footprint": "Package_SO:SOIC-16_3.9x9.9mm_P1.27mm",
+      "mpn": "CH340C", "lcsc": "C84681"
+    },
+    {"ref": "C3", "block": "usb_uart", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric", "anchor": "U2"},
+    {"ref": "C4", "block": "usb_uart", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric", "anchor": "U2"},
+    {"ref": "C5", "block": "usb_uart", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+
+    {
+      "ref": "U1", "block": "mcu", "value": "ATmega328P-AU",
+      "symbol": "MCU_Microchip_ATmega:ATmega328P-A", "footprint": "Package_QFP:TQFP-32_7x7mm_P0.8mm",
+      "mpn": "ATMEGA328P-AU"
+    },
+    {"ref": "C1", "block": "mcu", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric", "anchor": "U1"},
+    {"ref": "C2", "block": "mcu", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric", "anchor": "U1"},
+    {"ref": "C6", "block": "mcu", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "R1", "block": "mcu", "value": "10k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "SW1", "block": "mcu", "value": "RESET", "symbol": "Switch:SW_Push", "footprint": "Button_Switch_THT:SW_PUSH_6mm"},
+    {"ref": "Y1", "block": "mcu", "value": "16MHz", "symbol": "Device:Crystal", "footprint": "Crystal:Crystal_HC49-4H_Vertical"},
+    {"ref": "C7", "block": "mcu", "value": "22pF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "C8", "block": "mcu", "value": "22pF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+
+    {
+      "ref": "U3", "block": "power", "value": "AMS1117-3.3",
+      "symbol": "Regulator_Linear:AMS1117-3.3", "footprint": "Package_TO_SOT_SMD:SOT-223-3_TabPin2",
+      "mpn": "AMS1117-3.3", "lcsc": "C6186"
+    },
+    {"ref": "C9", "block": "power", "value": "10uF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "C10", "block": "power", "value": "22uF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+
+    {
+      "ref": "U4", "block": "rs485", "value": "MAX485E",
+      "symbol": "Interface_UART:MAX485E", "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+    },
+    {"ref": "C11", "block": "rs485", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "R2", "block": "rs485", "value": "120", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R7", "block": "rs485", "value": "680", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R8", "block": "rs485", "value": "680", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {
+      "ref": "J3", "block": "rs485", "value": "RS485",
+      "symbol": "Connector:Screw_Terminal_01x02",
+      "footprint": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal"
+    },
+
+    {
+      "ref": "U5", "block": "sensor", "value": "LM75B",
+      "symbol": "Sensor_Temperature:LM75B", "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+    },
+    {"ref": "C12", "block": "sensor", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {"ref": "R3", "block": "sensor", "value": "4.7k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "R4", "block": "sensor", "value": "4.7k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+
+    {"ref": "R5", "block": "leds", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "D1", "block": "leds", "value": "Green", "symbol": "Device:LED", "footprint": "LED_SMD:LED_0805_2012Metric"},
+    {"ref": "R6", "block": "leds", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "D2", "block": "leds", "value": "Yellow", "symbol": "Device:LED", "footprint": "LED_SMD:LED_0805_2012Metric"},
+
+    {
+      "ref": "J2", "block": "headers", "value": "IO",
+      "symbol": "Connector_Generic:Conn_01x08",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x08_P2.54mm_Vertical"
+    },
+    {
+      "ref": "J5", "block": "headers", "value": "AVR_ISP",
+      "symbol": "Connector_Generic:Conn_02x03_Odd_Even",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_2x03_P2.54mm_Vertical"
+    }
+  ],
+  "nets": [
+    {"name": "USB_VBUS", "nodes": [["J1", "1"], ["F1", "1"]]},
+    {
+      "name": "+5V", "external_supply": true,
+      "nodes": [
+        ["F1", "2"], ["U1", "4"], ["U1", "6"], ["U1", "18"], ["C1", "1"], ["C2", "1"], ["R1", "1"],
+        ["U2", "16"], ["C3", "1"], ["U3", "3"], ["C9", "1"], ["U4", "8"], ["C11", "1"], ["R7", "1"],
+        ["R5", "1"], ["J2", "7"], ["J5", "2"]
+      ]
+    },
+    {
+      "name": "GND",
+      "nodes": [
+        ["J1", "4"], ["J1", "SH"], ["U1", "3"], ["U1", "5"], ["U1", "21"], ["C1", "2"], ["C2", "2"],
+        ["C6", "2"], ["SW1", "2"], ["C7", "2"], ["C8", "2"], ["U2", "1"], ["U2", "15"], ["C3", "2"],
+        ["C4", "2"], ["U3", "1"], ["C9", "2"], ["C10", "2"], ["U4", "5"], ["C11", "2"], ["R8", "2"],
+        ["U5", "4"], ["U5", "5"], ["U5", "6"], ["U5", "7"], ["C12", "2"], ["D1", "1"], ["D2", "1"],
+        ["J2", "8"], ["J5", "6"]
+      ]
+    },
+    {"name": "USB_DP", "nodes": [["J1", "3"], ["U2", "5"]]},
+    {"name": "USB_DM", "nodes": [["J1", "2"], ["U2", "6"]]},
+    {"name": "CH340_V3", "nodes": [["U2", "4"], ["C4", "1"]]},
+    {"name": "MCU_RX", "nodes": [["U2", "2"], ["U1", "30"]]},
+    {"name": "MCU_TX", "nodes": [["U2", "3"], ["U1", "31"]]},
+    {"name": "DTR", "nodes": [["U2", "13"], ["C5", "1"]]},
+    {"name": "RESET", "nodes": [["C5", "2"], ["U1", "29"], ["R1", "2"], ["SW1", "1"], ["J5", "5"]]},
+    {"name": "AREF", "nodes": [["U1", "20"], ["C6", "1"]]},
+    {"name": "XTAL1", "nodes": [["U1", "7"], ["Y1", "1"], ["C7", "1"]]},
+    {"name": "XTAL2", "nodes": [["U1", "8"], ["Y1", "2"], ["C8", "1"]]},
+    {"name": "+3V3", "nodes": [["U3", "2"], ["C10", "1"], ["U5", "8"], ["C12", "1"], ["R3", "1"], ["R4", "1"]]},
+    {"name": "SDA", "nodes": [["U1", "27"], ["U5", "1"], ["R3", "2"]]},
+    {"name": "SCL", "nodes": [["U1", "28"], ["U5", "2"], ["R4", "2"]]},
+    {"name": "RS485_RX", "nodes": [["U4", "1"], ["U1", "2"]]},
+    {"name": "RS485_DIR", "nodes": [["U4", "2"], ["U4", "3"], ["U1", "32"]]},
+    {"name": "RS485_TX", "nodes": [["U4", "4"], ["U1", "1"]]},
+    {"name": "BUS_A", "nodes": [["U4", "6"], ["R2", "1"], ["R7", "2"], ["J3", "1"]]},
+    {"name": "BUS_B", "nodes": [["U4", "7"], ["R2", "2"], ["R8", "1"], ["J3", "2"]]},
+    {"name": "PWR_LED", "nodes": [["R5", "2"], ["D1", "2"]]},
+    {"name": "SCK", "nodes": [["U1", "17"], ["J5", "3"], ["R6", "1"]]},
+    {"name": "LED_L", "nodes": [["R6", "2"], ["D2", "2"]]},
+    {"name": "MISO", "nodes": [["U1", "16"], ["J5", "1"]]},
+    {"name": "MOSI", "nodes": [["U1", "15"], ["J5", "4"]]},
+    {"name": "D5", "nodes": [["U1", "9"], ["J2", "1"]]},
+    {"name": "D6", "nodes": [["U1", "10"], ["J2", "2"]]},
+    {"name": "D7", "nodes": [["U1", "11"], ["J2", "3"]]},
+    {"name": "D8", "nodes": [["U1", "12"], ["J2", "4"]]},
+    {"name": "D9", "nodes": [["U1", "13"], ["J2", "5"]]},
+    {"name": "D10", "nodes": [["U1", "14"], ["J2", "6"]]}
+  ],
+  "board": {
+    "size_mm": [100, 80],
+    "layers": 2,
+    "mount_holes": "M3x4",
+    "edge_connectors": [{"ref": "J1", "side": "left"}, {"ref": "J3", "side": "right"}, {"ref": "J2", "side": "right"}]
+  },
+  "notes": [
+    "大样例（ADR-0014）：8 个功能块、34 个元件，一张 A3 放不下时验证「每块一页 + 根页框图」那条路",
+    "示意用：没有做电气验证（M2 才有仿真关）。LM75B 在 3.3 V，I²C 上拉到 3.3 V，接 5 V 的 ATmega328P",
+    "USB_B 的 VBUS、GND 引脚本身是电源输出，所以 USB_VBUS、GND 不标 external_supply（否则和 PWR_FLAG 两个电源输出相连，ERC 报错）；",
+    "+5V 经保险丝过来、没有电源输出脚驱动，标 external_supply",
+    "U1 的 5、6、21 脚是和 3、4 脚叠在一起的隐藏引脚，一并写进网络",
+    "RS-485 用 PD2（方向）、PD3（发）、PD4（收）软件串口；硬件串口 PD0/PD1 给 CH340C"
+  ]
+}

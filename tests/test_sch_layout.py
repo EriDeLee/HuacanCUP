@@ -9,6 +9,7 @@ from eda_agent.emit.sch_layout import (
     Drawing,
     Field,
     Label,
+    Line,
     NetSpec,
     Note,
     Prims,
@@ -188,6 +189,36 @@ def test_a_wire_ending_at_its_own_label_or_under_a_note_edge_is_fine() -> None:
 def test_quality_gate_fails_when_a_wire_runs_through_a_block_title() -> None:
     prims = Prims(notes=[Note("mcu：单片机", 0.0, 0.0)], wires=[Wire((3.0, -2.0), (3.0, 4.0))])
     assert not layout_quality(_drawing(prims)).passed
+
+
+def test_quality_gate_fails_when_a_wire_runs_through_a_sheet_name() -> None:
+    """根页图纸框的框名是 KiCad 自己画的，不在 notes 里，靠 extra_texts 让检查关看见。"""
+    prims = Prims(extra_texts=[("sensor", (10.0, -2.0, 16.0, -0.6))])
+    prims.wires.append(Wire((12.0, -5.0), (12.0, 0.0)))
+    report = layout_quality(_drawing(prims))
+    assert {"type": "wire_through_text", "items": ["sensor"]} in report.findings
+
+
+def test_quality_gate_fails_when_an_arrow_head_covers_a_sheet_name() -> None:
+    """uno_like_board 的 +3V3 箭头从上面扎进 sensor 框，三角正好盖住框名。"""
+    prims = Prims(extra_texts=[("sensor", (10.0, -2.0, 16.0, -0.6))])
+    prims.lines.append(Line(((11.43, -10.0), (11.43, -2.54), (11.43, -0.3)), True))
+    report = layout_quality(_drawing(prims))
+    assert {"type": "line_through_text", "items": ["sensor"]} in report.findings
+
+
+def test_an_arrow_beside_text_is_fine() -> None:
+    prims = Prims(extra_texts=[("sensor", (10.0, -2.0, 16.0, -0.6))])
+    prims.notes.append(Note("+3V3", 20.32, -13.97))
+    prims.lines.append(Line(((19.05, -10.0), (19.05, -2.54), (19.05, -0.3)), True))
+    assert layout_quality(_drawing(prims)).passed
+
+
+def test_an_arrow_head_is_part_of_the_line_outline() -> None:
+    line = Line(((0.0, 0.0), (0.0, 10.0)), True)
+    head = line.boxes()[-1]
+    assert head == pytest.approx((-0.7, 8.2, 0.7, 10.0))
+    assert len(Line(((0.0, 0.0), (0.0, 10.0))).boxes()) == 1
 
 
 def test_crossings_are_counted_but_do_not_fail_the_gate() -> None:
