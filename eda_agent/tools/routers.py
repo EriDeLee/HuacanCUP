@@ -25,14 +25,24 @@ from eda_agent.tools.sandbox import sandbox_env
 from eda_agent.trace import TraceWriter
 
 
-def board_min_track_um(project_file: Path) -> int | None:
-    """KiCad 工程文件里板子规定的最小线宽（µm）；读不到返回 None。"""
+def _board_rule_um(project_file: Path, key: str) -> int | None:
+    """KiCad 工程文件里板子规则 board.design_settings.rules.<key>（mm）换成 µm；读不到返回 None。"""
     try:
         data = json.loads(project_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    value = data.get("board", {}).get("design_settings", {}).get("rules", {}).get("min_track_width")
+    value = data.get("board", {}).get("design_settings", {}).get("rules", {}).get(key)
     return round(value * 1000) if isinstance(value, (int, float)) and value > 0 else None
+
+
+def board_min_track_um(project_file: Path) -> int | None:
+    """板子规定的最小线宽（µm）。"""
+    return _board_rule_um(project_file, "min_track_width")
+
+
+def board_copper_edge_um(project_file: Path) -> int | None:
+    """板子规定的铜离板边的最小间距（µm）。"""
+    return _board_rule_um(project_file, "min_copper_edge_clearance")
 
 
 def fastroute_route(
@@ -44,9 +54,14 @@ def fastroute_route(
     trace: TraceWriter | None = None,
     max_passes: int = 20,
     min_track_um: int | None = None,
+    edge_clearance_um: int | None = None,
 ) -> ToolResult:
     """min_track_um：板子规定的最小线宽。fastroute 默认会在焊盘附近把线收窄（neck-down），
-    不告诉它下限就会收到 0.15 mm 以下，DRC 报线宽错误（M1 多页样例实测）。"""
+    不告诉它下限就会收到 0.15 mm 以下，DRC 报线宽错误（M1 多页样例实测）。
+
+    edge_clearance_um：铜离板边的最小间距。KiCad 导出的 .dsn 里没有这条，只有一般间距，
+    不告诉它的话线会贴着板边走（uno_like_board 实测离边 0.30 mm，规则 0.5 mm；ADR-0004）。
+    """
     args: list[str | Path] = [
         tools.fastroute,
         "-de",
@@ -60,6 +75,8 @@ def fastroute_route(
     ]
     if min_track_um is not None:
         args.append(f"--router.min_trace_width_um={min_track_um}")
+    if edge_clearance_um is not None:
+        args.append(f"--router.copper_to_edge_clearance_um={edge_clearance_um}")
     result = run_tool(
         "fastroute",
         args,

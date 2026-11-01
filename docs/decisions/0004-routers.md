@@ -18,6 +18,7 @@
    两块大板上明显更好，但只有 Linux 版；用户 2026-11-01 决定部署（Linux）时它主用、本机照旧（见本文开头）。其余开放项：
    托管服务（Zap!、Koppar）要上传设计；两块大板要把板子的最小线宽、过孔传给每个布线器后重测。
    我们自己生成的板子规则是一致的，不会有大板上那种「规则没传进布线器」的问题，但 M1 加网络类以后要验证 fastroute 收得到。
+   （2026-11-01 更正：板边间距就没传进 fastroute，见文末「板边间距没传给 fastroute」。）
 
 ## 决定（用户）
 
@@ -181,3 +182,33 @@ LED 板和 5 块示例板都能导出、导回。
 ## LED 冒烟（`smoke-led-20261031-163913`）
 
 3 个元件、3 个网络：Freerouting 与 KRT 都全部连通，DRC 0 错误。我们自己生成的板子目前不放铜层文字，所以铜层文字的两个问题没有出现。
+
+## 板边间距没传给 fastroute（2026-11-01，用户选「用 fastroute 自带的设置」）
+
+**现象**：大样例 uno_like_board（34 个元件，ADR-0014）的冒烟，fastroute 跑 10 次有 2 次 DRC 不过：
+1 次一根线离板边 0.30 mm（板子规则 `min_copper_edge_clearance` 0.5 mm），1 次 2 根线没布通。KRT 8 次全过。
+
+**测了什么**（`.tools/audit/route_repeat.py`，运行目录 `runs/route-repeat/`）：
+
+- fastroute 本身不随机：同一份 .dsn 跑 5 次（两份文件各 3 次、2 次），.ses 逐字节相同。
+- 变的是输入：每次建板元件位置一样，但 KiCad 存盘时按元件的内部编号（UUID）排序，编号是随机的，
+  导出的 .dsn 里元件和引脚的顺序每次不同（10 次建板 10 种顺序）。试过：`FOOTPRINT.SetUuid` 能改编号，
+  存盘就按编号排；按位号算出编号后，两次不同的建板导出的 .dsn 除了第一行的文件路径完全相同。
+- 离板边太近的原因：KiCad 导出的 .dsn 只有一般间距（`(clearance 200)`，0.2 mm），没有板边间距，
+  fastroute 不知道 0.5 mm 这条，它自己的报告写着 0 违规。fastroute 有现成的参数
+  `--router.copper_to_edge_clearance_um`（`fastroute --help` 里写着）。
+- 两种改法在同样 24 块板上重布（11 个样例的板 + uno 13 种顺序，其中含原来失败的两块）：
+  把 .dsn 的板框往里收 0.3 mm，或者加上面那个参数（500 µm）。两种都是 **0 条离板边太近**。
+  uno 上其余失败两种改法都还在：收板框 13 块里 1 块没布通；加参数 13 块里 1 块没布通、1 块两条线间距
+  0.1986 mm（规则 0.2 mm，差 0.0014 mm）。别的 11 块全过。
+
+**决定（用户）**：只修板边间距，用 fastroute 自带的参数，数值从工程文件的板子规则里读
+（和最小线宽 `--router.min_trace_width_um` 的传法一样）；「没布通」这类失败这次不管，
+建板编号也先不固定。对比脚本 `eval/router_bakeoff.py` 照旧不传板子规则，和前两次对比可比。
+
+**改法**：`eda_agent/tools/routers.py` 加 `board_copper_edge_um()`，`fastroute_route(..., edge_clearance_um=)`；
+冒烟（`eda_agent/smoke.py`）把工程里的板边间距传进去。
+
+**结果**：全链路检查（`.tools/audit/smoke_all.py`，11 个样例、两个布线器，`runs/m1-route-all` 15:44–15:54）全部通过；
+uno 那次的 trace 里 fastroute 的命令行带着 `--router.min_trace_width_um=200 --router.copper_to_edge_clearance_um=500`。
+「没布通」那类失败没修，uno 上大约十几次里 1–2 次，还会碰到。

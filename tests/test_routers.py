@@ -78,6 +78,17 @@ def test_board_min_track_width_is_read_from_the_project_file(tmp_path: Path) -> 
     assert routers.board_min_track_um(tmp_path / "missing.kicad_pro") is None
 
 
+def test_board_copper_edge_clearance_is_read_from_the_project_file(tmp_path: Path) -> None:
+    pro = tmp_path / "x.kicad_pro"
+    rules = '{"min_copper_edge_clearance": 0.5, "min_track_width": 0.2}'
+    pro.write_text('{"board": {"design_settings": {"rules": ' + rules + "}}}", "utf-8")
+    assert routers.board_copper_edge_um(pro) == 500
+    zero = '{"board": {"design_settings": {"rules": {"min_copper_edge_clearance": 0}}}}'
+    pro.write_text(zero, "utf-8")
+    assert routers.board_copper_edge_um(pro) is None
+    assert routers.board_copper_edge_um(tmp_path / "missing.kicad_pro") is None
+
+
 def test_fastroute_is_told_the_minimum_track_width(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -90,6 +101,21 @@ def test_fastroute_is_told_the_minimum_track_width(
     assert "--router.min_trace_width_um=200" in seen["argv"]
     routers.fastroute_route(tools, tmp_path / "b.dsn", tmp_path / "b.ses", log_dir=tmp_path)
     assert not any("min_trace_width" in a for a in seen["argv"])
+
+
+def test_fastroute_is_told_the_board_edge_clearance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """KiCad 导出的 .dsn 里没有板边间距，要单独告诉 fastroute（ADR-0004，uno_like_board 实测）。"""
+    tools = load_config(REPO_ROOT / "config.example.yaml").tools
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(routers, "run_tool", _fake_run(0, seen))
+    routers.fastroute_route(
+        tools, tmp_path / "b.dsn", tmp_path / "b.ses", log_dir=tmp_path, edge_clearance_um=500
+    )
+    assert "--router.copper_to_edge_clearance_um=500" in seen["argv"]
+    routers.fastroute_route(tools, tmp_path / "b.dsn", tmp_path / "b.ses", log_dir=tmp_path)
+    assert not any("copper_to_edge" in a for a in seen["argv"])
 
 
 @pytest.mark.parametrize("exit_code", [1, 2, None])

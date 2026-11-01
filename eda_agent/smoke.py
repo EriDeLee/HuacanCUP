@@ -37,7 +37,12 @@ from eda_agent.gates.schematic_quality import layout_quality, netlist_gate
 from eda_agent.ir.models import load_design
 from eda_agent.tools.kicad_cli import KicadCli
 from eda_agent.tools.kicad_python import run_kicad_script
-from eda_agent.tools.routers import board_min_track_um, fastroute_route, krt_route
+from eda_agent.tools.routers import (
+    board_copper_edge_um,
+    board_min_track_um,
+    fastroute_route,
+    krt_route,
+)
 from eda_agent.tools.runner import ToolResult, run_tool
 from eda_agent.tools.sandbox import sandbox_env
 from eda_agent.trace import TraceWriter
@@ -214,13 +219,15 @@ class Smoke:
                 self._kicad_script(
                     "specctra.py", ["export", "--pcb", target, "--dsn", dsn], target.parent
                 )
+                project = target.with_suffix(".kicad_pro")
                 fastroute_route(
                     self.tools,
                     dsn,
                     ses,
                     log_dir=self.logs,
                     trace=self.trace,
-                    min_track_um=board_min_track_um(target.with_suffix(".kicad_pro")),
+                    min_track_um=board_min_track_um(project),
+                    edge_clearance_um=board_copper_edge_um(project),
                 )
                 self._kicad_script(
                     "specctra.py", ["import", "--pcb", target, "--ses", ses], target.parent
