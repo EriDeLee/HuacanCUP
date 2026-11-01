@@ -1,4 +1,4 @@
-# 你不在时我替你做的决定（等你回来逐条确认）
+# 你不在时我替你做的决定（2026-11-01 已全部确认）
 
 2026-10-31 晚你说出去一趟，让我做完 1、2、3（M1、M1 原理图用自写引擎、云端测 TraceMaker），
 不许做的事由我先列出来，其余默认允许。我列的 15 条禁止清单在当时的回复里。
@@ -10,17 +10,15 @@
    撤不回的事按禁止清单不做。
 3. 顺序：先云端测 TraceMaker（短活），再做 M1（长活）。
 
-不同意哪条，告诉我编号，我改回去。
+**2026-11-01 用户回来后确认：D1–D12 全部同意。** 这份记录留作历史。
 
-## 等你拍板、我没有动的事
+## 你回来后定下的事
 
 ### Q1 TraceMaker 在两块大板上远好于 fastroute 和 KRT，要不要换主用布线器？
 
 - 云端实测（ADR-0004「TraceMaker 云端测试」）：StickHub 上 TraceMaker 1 个错误，fastroute 105、KRT 17；
   multichannel 上 TraceMaker 0 个，fastroute 488、KRT 281。小板上三者接近，pic_programmer 上 TraceMaker 有 4 条没连上。
-- 你定的是 fastroute 主用 + KRT 备用，我没有改。
-- 难点：TraceMaker 只有 Linux 版，本机 Windows 跑不了（它的说明写 WSL2 里也许能跑，但没人测过；WSL 在禁止清单里）。
-  最终部署是 Linux（PLAN M6），所以一种做法是「本机 fastroute + KRT，部署后 TraceMaker 主用」。
+- **用户决定（2026-11-01）：部署（Linux）时 TraceMaker 主用，本机照旧 fastroute + KRT。** 已写进 ADR-0004 和 PLAN（M6 接入）。
 
 ## 决定记录
 

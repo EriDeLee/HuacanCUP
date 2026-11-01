@@ -51,7 +51,7 @@
 | 电路 IR | 自定义 `design.json`（见 §5） | 便于确定性校验、diff、补丁；与具体 EDA 解耦 |
 | 原理图生成 | **自写版面引擎**（`eda_agent/emit/sch_*.py`，用户 2026-10-31 选定）：主芯片 + 引脚链，按功能块分页、根页是框图，按信号流向排；支持多单元和派生符号。SKiDL 只留作对照（`smoke --schematic skidl`） | ADR-0009（SKiDL 实测不够好）、ADR-0011、ADR-0013 |
 | PCB 生成 | **自写 `eda_agent/kicad_side/board_build.py`**（kicad-cli 导出的网表→`.kicad_pcb`，在 KiCad 自带 Python 里调 `pcbnew`）；kinet2pcb 在 Windows 上不可用 | ADR-0007 |
-| 布线 | **fastroute 0.1.14 主用，KiCadRoutingTools v0.23.7 备用**（用户 2026-10-31 决定）；fastroute 走 DSN 导出 / SES 导回（`pcbnew.ExportSpecctraDSN` / `ImportSpecctraSES`），KiCadRoutingTools 直接读写 .kicad_pcb | ADR-0004 |
+| 布线 | **本机：fastroute 0.1.14 主用，KiCadRoutingTools v0.23.7 备用**（用户 2026-10-31 决定）；fastroute 走 DSN 导出 / SES 导回（`pcbnew.ExportSpecctraDSN` / `ImportSpecctraSES`），KiCadRoutingTools 直接读写 .kicad_pcb。**部署（Linux）：TraceMaker 主用**（只有 Linux 版，两块大板上实测远好于前两者；用户 2026-11-01 决定，M6 接入） | ADR-0004 |
 | ERC/DRC/导出 | **kicad-cli**（KiCad 10.0.8，解压版）：`sch erc --format json --exit-code-violations`、`pcb drc --format json --schematic-parity`、`pcb export gerbers/drill/pos/step/glb`、`pcb render` | ADR-0002 |
 | 仿真 | **KiCad 自带的 ngspice-46**（`ngspice.dll`），自写 ctypes 对接、子进程隔离，`.meas` 测量 | ADR-0003 |
 | 元器件目录 | JLCPCB/LCSC 公开目录：`cdfer/jlcpcb-parts-database` 的基础/优选件 CSV（约 3MB）为默认；可选下载其在库件 SQLite 文件（约 1GB）**作为只读数据文件**查询 | 无需凭证 |
@@ -328,7 +328,7 @@ memory/designs/<run_id>/   通过的设计（README + design.json），供检索
 | M3 | 12/07–12/27 | LLM 抽象、各智能体、编排状态机、回退与预算、断点续跑；CLI：`eda-agent run "需求"` | 3 个演示需求在 CLI 端到端跑出交付物（允许人工节点用命令行确认） |
 | M4 | 12/28–01/10 | 目录/库存/采购；数据手册下载+解析+本地向量检索 | 选型结果都带出处页码；缺件生成采购申请 |
 | M5 | 01/11–01/24 | 飞书机器人（卡片审批全流程）、记忆读写；Discord（可选） | 在飞书里从许愿到收到交付卡 |
-| M6 | 01/25–02/07 | 网页（实时+回放）、部署到云服务器、限流 | 评委可在网页回放 3 个案例、可实时跑 1 个小案例 |
+| M6 | 01/25–02/07 | 网页（实时+回放）、部署到云服务器、限流；部署镜像里装 TraceMaker 作主用布线器（ADR-0004） | 评委可在网页回放 3 个案例、可实时跑 1 个小案例 |
 | M7 | 02/08–02/21 | 评测：自建对照集 + 基线对比 + 报告；bring-up 流程（S11） | `python tasks.py eval` 一键重跑出表格与图 |
 | M8 | 02/22–03/04 | 海报、演示视频、提交材料、修 bug；03/05 前一天提交 | 提交完成 |
 

@@ -1,6 +1,8 @@
 # ADR-0004 自动布线：候选工具实测
 
-- 状态：已采纳（2026-10-31，用户决定）：**fastroute 主用，KiCadRoutingTools 备用**；去掉 Freerouting 和 kicad-tools
+- 状态：已采纳（2026-10-31，用户决定）：**fastroute 主用，KiCadRoutingTools 备用**；去掉 Freerouting 和 kicad-tools。
+  2026-11-01 用户看过 TraceMaker 云端结果后补充决定：**部署（Linux）时 TraceMaker 主用，本机 Windows 照旧 fastroute + KRT**。
+  部署在 M6 才做，到时把 TraceMaker 装进部署镜像、接进布线流程；现在只记下决定，代码没改
 - 影响：PLAN §2「布线」、§12 M0、§16；`eda_agent/tools/routers.py`、`config.py`、`smoke.py`
 
 ## 最终决定
@@ -13,7 +15,7 @@
    适配代码留在提交 aeee649，实测成绩留在本文。`.tools/` 里的 Freerouting（62 MB）、JRE 25（179 MB）、
    venv-kct（277 MB）本地文件，用户决定留着（2026-10-31）；它们已不在配置里，不会被代码调用。
 4. 仍然开放（用户说「再找找更顶级的」）：TraceMaker 已在云端测完（2026-11-01，见「TraceMaker 云端测试」），
-   两块大板上明显更好，但只有 Linux 版；是否改用由用户定。其余开放项：
+   两块大板上明显更好，但只有 Linux 版；用户 2026-11-01 决定部署（Linux）时它主用、本机照旧（见本文开头）。其余开放项：
    托管服务（Zap!、Koppar）要上传设计；两块大板要把板子的最小线宽、过孔传给每个布线器后重测。
    我们自己生成的板子规则是一致的，不会有大板上那种「规则没传进布线器」的问题，但 M1 加网络类以后要验证 fastroute 收得到。
 
@@ -124,7 +126,12 @@ PyPI 上的 kct 只有纯 Python 包；C++ 后端要在本机用 cmake + 编译�
   interf_u 和 pic_programmer 它都用满了默认的 120 秒。
 - fastroute 和 KRT 的错误数和本机基本一致（fastroute 本机 454 / 105 / 3 / 0 / 0，云端 488 / 105 / 2 / 0 / 0），
   用时云端快 4–9 倍（这台机器比本机快，所以用时只能在同一张表里比）。KRT 在 interf_u 上云端 609 秒布完，本机 900 秒超时。
-- 结论只基于这 5 块板、每个布线器跑一次。TraceMaker 只有 Linux 版，本机跑不了；要不要改主用布线器由用户定（见 docs/review-queue.md）。
+- 第二次运行（41262079839，提交 4303a50，同样三台机器）：fastroute、KRT 的错误数和第一次几乎一样
+  （multichannel 486、275，其余四块相同）；TraceMaker 在 StickHub 上是 4 个阻焊桥错误、用满了 120 秒
+  （第一次 1 个、39 秒），其余四块和第一次一样。在时间限制下，跑到哪一步取决于机器当时有多快，
+  所以同一块板两次结果可以不同（这是推测，没有逐项核实）。
+- 结论基于这 5 块板、每个布线器跑两次。TraceMaker 只有 Linux 版，本机跑不了；
+  用户 2026-11-01 决定部署（Linux）时它主用，本机照旧 fastroute + KRT。
 
 ## 第三方评测（单一来源，且是评测方自己做的）
 
