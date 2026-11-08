@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -38,10 +38,27 @@ class ToolsConfig(BaseModel):
     timeouts: Timeouts = Timeouts()
 
 
+class GatesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # G1 额定值检查：网络电压（电流、功耗）≤ 器件额定值 × 降额系数（PLAN §7）
+    derating: float = Field(default=0.8, gt=0, le=1)
+
+
+class PcbConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # G3 线宽检查和版图智能体定线宽用的铜厚、温升（IPC-2221，PLAN §7 G3）
+    copper_thickness_um: float = Field(default=35.0, gt=0)  # 1 oz/ft²
+    temp_rise_c: float = Field(default=10.0, gt=0)
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     tools: ToolsConfig
+    gates: GatesConfig = GatesConfig()
+    pcb: PcbConfig = PcbConfig()
 
 
 def default_config_path() -> Path:

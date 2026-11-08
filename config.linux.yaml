@@ -16,3 +16,10 @@ tools:
     default_s: 300
     route_s: 900
     sim_s: 120
+
+gates:
+  derating: 0.8
+
+pcb:
+  copper_thickness_um: 35
+  temp_rise_c: 10

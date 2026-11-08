@@ -171,6 +171,26 @@ def margin(
     )
 
 
+def margin_fields(
+    measured: float,
+    op: Op,
+    threshold: float,
+    threshold_high: float | None = None,
+    *,
+    unit: str = "",
+    scale: float | None = None,
+) -> dict[str, Any]:
+    """Finding 里和数值有关的字段（measured、threshold、op、unit、margin）一次填好。"""
+    return {
+        "measured": measured,
+        "threshold": threshold,
+        "threshold_high": threshold_high,
+        "op": op,
+        "unit": unit,
+        "margin": margin(measured, op, threshold, threshold_high, scale),
+    }
+
+
 def report_json_schema() -> dict[str, object]:
     """导出到 schemas/gate_report.schema.json 的内容。"""
     schema = GateReport.model_json_schema(mode="serialization")

@@ -18,3 +18,12 @@ tools:
     default_s: 300
     route_s: 900
     sim_s: 120
+
+gates:
+  # G1 额定值检查：网络电压、器件电流、功耗 ≤ 器件额定值 × 降额系数（PLAN §7）
+  derating: 0.8
+
+pcb:
+  # G3 线宽检查和版图智能体定线宽（IPC-2221）：铜厚 1 oz/ft² = 35 µm，温升 10 °C
+  copper_thickness_um: 35
+  temp_rise_c: 10
