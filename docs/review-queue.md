@@ -478,3 +478,16 @@
 - 撤回：删 `examples/led/spec.json` 和 D1 的 `spice`；`eda_agent/smoke.py` 的 `gate_chain`。
 - 注意：`AGENTS.md` 和 PLAN §14 里对冒烟、`placement/` 的描述还是旧的（「规划中」），我没有改，改不改你定。
 
+### D38 overcurrent_cutoff 过不了 G3 的线宽检查：样例本身的问题，没有改规则
+
+- 现象（`tests/tools/test_g3_examples.py`，摆放 auto + fastroute 布线）：spec 写了 VBAT、LOAD_N 的 `i_max` 是 10 A，
+  IPC-2221（1 oz、温升 10 °C、外层）要 7.19 mm 宽，板上这两个网络最窄的线是 1.5 mm 和 1.125 mm，G3 报两条 `trace_width`。
+  摆放用 rows 时 VBAT 同样是 1.5 mm（`runs/m2-placement-20261108-153216` 里的板子），与摆放无关。
+  未布通、板尺寸、KiCad 自己的 DRC 都没问题。
+- 选了：按任务书，不改规则、不改样例；测试把失败集合钉住（VBAT 和 LOAD_N 两条）。
+- 要让它过：① 样例的 `i_max` 降到板子扛得住的数（按现在的线宽，1 oz、温升 10 °C 下 VBAT 约 3.2 A、LOAD_N 约 2.6 A）；
+  ② 网络类线宽加到 7.2 mm 以上（80×50 mm 的板子上不现实）；
+  ③ 只改 `config.yaml` 不够：铜厚 2 oz、温升放宽到 30 °C 也要 1.85 mm，3 oz 加 30 °C 要 1.23 mm，都超过板上的线宽；
+  ④ 大电流改用铺铜——但 G3 现在只量走线（`segment`），不量铺铜（`zone`），纯靠铺铜的网络会记进 `width_unchecked`，
+  不会被查，这是现在的限制。你定。
+
