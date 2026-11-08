@@ -354,6 +354,14 @@
           "default": null,
           "description": "画原理图时贴在哪个元件旁边（位号）。用于不在任何引脚链上的元件，如电源和地之间的去耦电容；不填则贴在同一功能块里第一个和它共用网络的主芯片旁边",
           "title": "Anchor"
+        },
+        "nc_pins": {
+          "description": "明确不接的引脚编号（NC）。G1 的悬空引脚检查不报这些引脚；没写的输入脚、电源脚不接东西就报错。这里的引脚不能同时出现在 nets 里",
+          "items": {
+            "type": "string"
+          },
+          "title": "Nc Pins",
+          "type": "array"
         }
       },
       "required": [

@@ -73,6 +73,13 @@ class Part(_Model):
             "不填则贴在同一功能块里第一个和它共用网络的主芯片旁边"
         ),
     )
+    nc_pins: list[str] = Field(
+        default_factory=list,
+        description=(
+            "明确不接的引脚编号（NC）。G1 的悬空引脚检查不报这些引脚；"
+            "没写的输入脚、电源脚不接东西就报错。这里的引脚不能同时出现在 nets 里"
+        ),
+    )
 
 
 class Net(_Model):
@@ -178,6 +185,14 @@ class Design(_Model):
         for conn in self.board.edge_connectors:
             if conn.ref not in known:
                 raise ValueError(f"板边连接器 {conn.ref} 不在元件列表里")
+        for part in self.parts:
+            if len(set(part.nc_pins)) != len(part.nc_pins):
+                raise ValueError(f"{part.ref} 的 nc_pins 有重复的引脚")
+            for pin in part.nc_pins:
+                if (part.ref, pin) in seen:
+                    raise ValueError(
+                        f"引脚 {part.ref}.{pin} 标了 NC，却又在网络 {seen[(part.ref, pin)]} 里"
+                    )
         return self
 
 

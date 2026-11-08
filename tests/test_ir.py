@@ -73,6 +73,12 @@ def test_full_part_fields_of_plan_5_2_are_accepted(led_design_path: Path) -> Non
     assert part.ratings == {"if_max": 0.02}
 
 
+def test_pins_can_be_marked_nc(led_design_path: Path) -> None:
+    data = _led(led_design_path)
+    data["parts"][0]["nc_pins"] = ["3", "4"]
+    assert Design.model_validate(data).parts[0].nc_pins == ["3", "4"]
+
+
 def test_net_classes_must_be_defined_on_the_board(led_design_path: Path) -> None:
     data = _led(led_design_path)
     data["nets"][0]["class"] = "power"
@@ -105,6 +111,8 @@ def test_via_drill_must_be_smaller_than_the_via(led_design_path: Path) -> None:
         (lambda d: d["board"].update(mount_holes="M5x3"), "mount_holes"),
         (lambda d: d["board"].update(layers=3), "layers"),
         (lambda d: d["parts"][0].update(role="chip"), "role"),
+        (lambda d: d["parts"][0].update(nc_pins=["3", "3"]), "nc_pins 有重复"),
+        (lambda d: d["parts"][0].update(nc_pins=["1"]), r"J1\.1 标了 NC"),
     ],
 )
 def test_bad_references_and_values_are_rejected(
