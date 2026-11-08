@@ -39,13 +39,14 @@ class Scripted:
 
 
 def env(tmp_path: Path, sim: Scripted, **kw: Any) -> SimEnv:
+    """峰值复核（D39）缺省关掉：这个文件里的大部分测试只看判定和收敛重试，调用次数要数得清。"""
     return SimEnv(
         tools=load_config().tools,
         sim_dir=tmp_path / "branches" / "0" / "sim",
         run_dir=tmp_path,
         simulate=sim,
         plot=False,
-        **kw,
+        **{"confirm": False, **kw},
     )
 
 
@@ -351,3 +352,117 @@ def test_without_a_trace_nothing_is_written(tmp_path: Path) -> None:
     design, spec = divider()
     sim_gate(design, spec, env(tmp_path, Scripted(fake_sim(divider_vectors()))))
     assert not (tmp_path / "trace.jsonl").exists()
+
+
+# ---------------------------------------------------------------- 峰值复核（D39）
+
+Rounds = dict[int, dict[str, tuple[float, ...]]]
+Q1_DRIFT: Rounds = {  # Q1 的最高电压随步长缩小往 12.4 V 收敛，U1 的电流一直在变
+    1: {"dev:Q1": (13.9, 10.0, 106.0), "dev:U1": (5.0, 0.0118, 0.0596), "net:VBAT": (10.0,)},
+    2: {"dev:Q1": (12.4, 10.0, 106.0), "dev:U1": (5.0, 0.0091, 0.0495), "net:VBAT": (10.0,)},
+    4: {"dev:Q1": (12.4, 10.0, 106.0), "dev:U1": (5.0, 0.0088, 0.0477), "net:VBAT": (10.0,)},
+    8: {"dev:Q1": (12.4, 10.0, 106.0), "dev:U1": (5.0, 0.0081, 0.0391), "net:VBAT": (10.0,)},
+}
+
+
+def with_rounds(monkeypatch: pytest.MonkeyPatch, rounds: Rounds) -> None:
+    """复核用准备好的极值（按步长缩小的倍数查），不去解析假的 ngspice 结果。"""
+    from eda_agent.sim import accuracy
+
+    def fake(run: Any) -> accuracy.Confirmed:
+        return accuracy.confirm(run, lambda bench, sim: rounds[bench.attempt.step_divisor])
+
+    monkeypatch.setattr("eda_agent.gates.sim.confirm", fake)
+
+
+def test_transient_peaks_come_from_the_strict_series_and_the_files_are_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    design, spec = overcurrent_a1()
+    with_rounds(monkeypatch, {1: Q1_DRIFT[1], 2: Q1_DRIFT[2]} | {4: Q1_DRIFT[2]})
+    sim = Scripted(overcurrent_ok())
+    report = sim_gate(design, spec, env(tmp_path, sim, confirm=True))
+
+    f = by_id(report)["A1"]
+    assert f.status == "pass" and f.measured == pytest.approx(7.2e-5), "判定用第一次那组设置的结果"
+    assert report.device_stress["Q1"].v_peak == pytest.approx(12.4), "峰值用复核过的"
+    assert report.device_stress["U1"].v_peak == pytest.approx(5.0)
+    assert report.net_current_peak == {"VBAT": 10.0}
+    assert len(sim.calls) == 1 + 3, "判定一次，复核三轮（第 3 轮 Q1 和 U1 才和上一轮一致）"
+    assert all("raw" not in c for c in sim.calls[1:]), "复核的运行不写 .raw"
+
+    sim_dir = tmp_path / "branches" / "0" / "sim"
+    first = (sim_dir / "check" / "A1.gear.0.cir").read_text(encoding="utf-8")
+    second = (sim_dir / "check" / "A1.gear.1.cir").read_text(encoding="utf-8")
+    assert (
+        ".options method=gear trtol=1\n" in first and ".options method=gear trtol=0.5\n" in second
+    )
+    assert (sim_dir / "check" / "models" / "irlz44n.lib").exists(), ".include 的相对路径要找得到"
+    assert "branches/0/sim/check/A1.gear.0.cir" in f.artifacts
+    assert [p.name for p in sim_dir.glob("A1*.cir")] == ["A1.cir"], "check 的网表不混进判定的网表"
+    check = f.detail["stress_check"]
+    assert check["settings"] == "gear" and check["runs"][1] == {"trtol": 0.5, "step_divisor": 2}
+
+
+def test_entries_that_never_settle_are_left_out_and_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    design, spec = overcurrent_a1()
+    with_rounds(monkeypatch, Q1_DRIFT)
+    sim = Scripted(overcurrent_ok())
+    report = sim_gate(design, spec, env(tmp_path, sim, confirm=True))
+    assert "U1" not in report.device_stress and "Q1" in report.device_stress
+    assert by_id(report)["A1"].detail["stress_check"]["unconfirmed"] == ["dev:U1"]
+    assert len(sim.calls) == 5, "判定一次，复核最多 4 轮"
+
+
+def test_if_the_strict_runs_fail_the_verdict_stands_and_no_peaks_are_reported(
+    tmp_path: Path,
+) -> None:
+    design, spec = overcurrent_a1()
+    sim = Scripted(overcurrent_ok(), aborted())
+    report = sim_gate(design, spec, env(tmp_path, sim, confirm=True))
+    f = by_id(report)["A1"]
+    assert f.status == "pass" and report.passed
+    assert report.device_stress == {} and report.net_current_peak == {}
+    assert "严格设置" in f.detail["stress_check"]["error"]
+    assert len(sim.calls) == 1 + 3, "三组严格设置各试一次"
+
+
+def test_analyses_without_time_steps_are_not_rechecked(tmp_path: Path) -> None:
+    design, spec = divider()
+    sim = Scripted(fake_sim(divider_vectors()))
+    report = sim_gate(design, spec, env(tmp_path, sim, confirm=True))
+    assert len(sim.calls) == 2, "两条 op 验收标准各跑一次，没有复核"
+    assert "stress_check" not in by_id(report)["A1"].detail
+    assert not (tmp_path / "branches" / "0" / "sim" / "check").exists()
+
+
+def test_the_recheck_can_be_switched_off(tmp_path: Path) -> None:
+    design, spec = overcurrent_a1()
+    sim = Scripted(overcurrent_ok())
+    sim_gate(design, spec, env(tmp_path, sim))
+    assert len(sim.calls) == 1
+
+
+def test_recheck_runs_are_in_the_trace_and_validate_against_the_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, trace_validator: Draft202012Validator
+) -> None:
+    design, spec = overcurrent_a1()
+    with_rounds(monkeypatch, {1: Q1_DRIFT[2], 2: Q1_DRIFT[2]})
+    trace = TraceWriter(tmp_path / "trace.jsonl", "run-1")
+    sim_gate(
+        design,
+        spec,
+        env(tmp_path, Scripted(overcurrent_ok()), trace=trace, branch=0, confirm=True),
+    )
+    events = read_trace(tmp_path / "trace.jsonl")
+    assert [(e["name"], e["status"]) for e in events] == [
+        ("sim:A1", "start"),
+        ("sim-check", "ok"),
+        ("sim-check", "ok"),
+        ("sim:A1", "ok"),
+    ]
+    assert [e["detail"].get("run") for e in events[1:3]] == ["gear.0", "gear.1"]
+    for event in events:
+        trace_validator.validate(event)

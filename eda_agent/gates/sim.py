@@ -11,6 +11,9 @@
 
 额外测量：每个器件的峰值电压、电流、功耗，每个网络的电流上界，写进报告的 device_stress 和
 net_current_peak（G1 额定值检查第二轮、G3 线宽检查用）。取所有仿真里的最大值。
+瞬态分析的峰值是时间上的极值，对步长很敏感，所以不直接用验收标准那次仿真的数：
+另跑一串严格设置（网表和结果在 sim/check/），相邻两轮一致才采用，没收敛的不报，
+detail["stress_check"] 里写明（sim/accuracy.py，review-queue D39）。
 
 文件放在运行目录的 branches/<k>/sim/ 下（ADR-0016）：<编号>.cir（第一次尝试；后面几次是
 <编号>.<设置名>.cir）、<编号>.json（ngspice 结果）、<编号>.raw、plots/<编号>.png、
@@ -42,10 +45,11 @@ from eda_agent.gates.report import (
 )
 from eda_agent.ir.models import Design
 from eda_agent.ir.spec import Acceptance, Spec
+from eda_agent.sim.accuracy import Confirmed, confirm
 from eda_agent.sim.measure import Measurement, evaluate
 from eda_agent.sim.plots import plot_acceptance
 from eda_agent.sim.stress import device_stress, net_current_peaks
-from eda_agent.sim.testbench import ATTEMPTS, Bench, BenchError, build_bench
+from eda_agent.sim.testbench import ATTEMPTS, AttemptPlan, Bench, BenchError, build_bench
 from eda_agent.tools.ngspice import SimResult, run_netlist
 from eda_agent.trace import TraceWriter
 
@@ -72,6 +76,7 @@ class SimEnv:
     plot: bool = True
     timeout_s: float | None = None
     log_dir: Path | None = None
+    confirm: bool = True  # 瞬态的峰值另跑严格设置复核（sim/accuracy.py，D39）
 
 
 @dataclass
@@ -105,11 +110,48 @@ def _problems(sim: SimResult) -> list[str]:
     return (lines or sim.errors)[:_DETAIL_LINES]
 
 
-def _install_models(bench: Bench, env: SimEnv) -> None:
+def _install_models(bench: Bench, env: SimEnv, folder: Path | None = None) -> None:
+    """模型文件的副本放在网表旁边（.include 的相对路径指向它）。"""
     for lib in bench.includes:
-        target = env.sim_dir / lib
+        target = (folder or env.sim_dir) / lib
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(env.models_root / lib, target)
+
+
+def _confirmed_stress(
+    design: Design, spec: Spec, acc: Acceptance, env: SimEnv, artifacts: list[str]
+) -> Confirmed:
+    """瞬态的峰值：另跑一串严格设置，相邻两轮一致的才采用（sim/accuracy.py）。
+    网表和结果放在 sim/check/ 下；跑通的网表也列进 artifacts。"""
+    folder = env.sim_dir / "check"
+
+    def run(plan: AttemptPlan, tag: str) -> tuple[Bench, SimResult] | None:
+        try:
+            bench = build_bench(design, spec, acc, models_root=env.models_root, attempt=plan)
+        except BenchError:
+            return None
+        folder.mkdir(parents=True, exist_ok=True)
+        cir = folder / f"{acc.id}.{tag}.cir"
+        cir.write_text(bench.text, encoding="utf-8", newline="\n")
+        _install_models(bench, env, folder)
+        sim = env.simulate(
+            env.tools,
+            cir,
+            folder / f"{acc.id}.{tag}.json",
+            log_dir=env.log_dir or env.sim_dir / "logs",
+            trace=env.trace,
+            settings=bench.settings,
+            timeout_s=env.timeout_s,
+        )
+        stuck = any(_CONVERGENCE.search(line) for line in sim.output)
+        converged = sim.ok and not sim.tool.timed_out and not stuck
+        _emit(env, "sim-check", "ok" if converged else "fail", acceptance=acc.id, run=tag)
+        if not converged:
+            return None
+        artifacts.append(_rel(cir, env))
+        return bench, sim
+
+    return confirm(run)
 
 
 def _describe(acc: Acceptance, value: float, margin: float) -> str:
@@ -238,11 +280,20 @@ def run_acceptance(design: Design, spec: Spec, acc: Acceptance, env: SimEnv) -> 
         "measure": acc.measure.kind,
         **measurement.detail,
     }
-    try:
-        stress, nets = device_stress(bench, sim), net_current_peaks(bench, sim)
-    except KeyError as exc:  # 结果里缺探针的向量（仿真中途出了问题）：判定照给，只是没有额外测量
-        stress, nets = {}, {}
-        detail["stress_error"] = str(exc.args[0] if exc.args else exc)
+    stress: dict[str, DeviceStress] = {}
+    nets: dict[str, float] = {}
+    if acc.testbench.type == "transient" and env.confirm:
+        # 时间上的极值对步长敏感（D39）：验收标准的判定用上面的结果，峰值要复核过才报
+        checked = _confirmed_stress(design, spec, acc, env, artifacts)
+        stress, nets = checked.devices, checked.nets
+        detail["stress_check"] = checked.summary()
+    else:
+        try:
+            stress, nets = device_stress(bench, sim), net_current_peaks(bench, sim)
+        except (
+            KeyError
+        ) as exc:  # 结果里缺探针的向量（仿真中途出了问题）：判定照给，只是没有额外测量
+            detail["stress_error"] = str(exc.args[0] if exc.args else exc)
     finding = Finding(
         id=acc.id,
         severity="info" if status == "pass" else "error",

@@ -97,12 +97,14 @@ class BenchError(Exception):
 
 @dataclass(frozen=True)
 class AttemptPlan:
-    """一次仿真尝试的设置（PLAN §7 G2「收敛手段按顺序自动尝试」）。后一次在前一次的基础上再加码。"""
+    """一次仿真尝试的设置（PLAN §7 G2「收敛手段按顺序自动尝试」）。后一次在前一次的基础上再加码。
+    name 为 accuracy 的不在收敛重试的四档里：它是 sim/accuracy.py 为复核峰值另跑的严格设置。"""
 
-    name: Literal["default", "relaxed", "gear", "short_step"]
+    name: Literal["default", "relaxed", "gear", "short_step", "accuracy"]
     options: tuple[str, ...] = ()  # 附加的 .options 内容
     uic: bool = False  # 瞬态加 uic，跳过直流工作点
     step_divisor: int = 1  # 瞬态最大步长缩短到几分之一
+    trtol: float | None = None  # 瞬态的截断误差系数（ngspice 默认 7，越小越严）；None = 不写
 
 
 _RELAXED = ("gmin=1e-9", "reltol=0.01", "abstol=1e-9", "vntol=0.0001")
@@ -666,7 +668,10 @@ def build_bench(
     ]
     header += [f".include {path}" for path in includes]
     net_notes = [f"* net {n} = node {node}" for n, node in b.nodes.items() if n.isascii()]
-    options = [f".options {' '.join(attempt.options)}"] if attempt.options else []
+    items = list(attempt.options)
+    if attempt.trtol is not None and kind == "transient":
+        items.append(f"trtol={attempt.trtol:g}")
+    options = [f".options {' '.join(items)}"] if items else []
     text = "\n".join([*header, *net_notes, *b.lines, *options, *analysis, *meas, ".end"]) + "\n"
     return Bench(
         acceptance_id=acceptance.id,

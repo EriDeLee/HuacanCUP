@@ -18,6 +18,7 @@ import pytest
 from eda_agent.config import REPO_ROOT
 from eda_agent.ir.models import Design
 from eda_agent.ir.spec import Spec
+from eda_agent.sim.accuracy import strict_plan
 from eda_agent.sim.testbench import ATTEMPTS, Bench, BenchError, build_bench
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"
@@ -523,6 +524,54 @@ def test_attempts_do_not_change_the_circuit_itself() -> None:
     base = circuit(from_folder(EXAMPLES / "overcurrent_cutoff", "A1", 0).text)
     for i in (1, 2, 3):
         assert circuit(from_folder(EXAMPLES / "overcurrent_cutoff", "A1", i).text) == base
+
+
+def strict(folder: Path, acceptance: str, round_number: int, options: tuple[str, ...]) -> Bench:
+    design_doc, spec_doc = docs(folder)
+    design, spec = Design.model_validate(design_doc), Spec.model_validate(spec_doc)
+    acc = next(a for a in spec.acceptance if a.id == acceptance)
+    return build_bench(
+        design,
+        spec,
+        acc,
+        models_root=REPO_ROOT,
+        attempt=strict_plan(options, round_number),
+    )
+
+
+def test_strict_settings_tighten_the_error_control_and_shrink_the_step() -> None:
+    """复核峰值用的设置（D39）：第 k 轮误差系数和最大步长都是第 0 轮的 1 / 2^k。"""
+    folder = EXAMPLES / "overcurrent_cutoff"
+    texts = [strict(folder, "A1", k, ("method=gear",)).text for k in range(3)]
+    options = [next(x for x in t.splitlines() if x.startswith(".options")) for t in texts]
+    assert options == [
+        ".options method=gear trtol=1",
+        ".options method=gear trtol=0.5",
+        ".options method=gear trtol=0.25",
+    ]
+    steps = [next(x for x in t.splitlines() if x.startswith(".tran")).split()[1] for t in texts]
+    assert steps == ["5e-06", "2.5e-06", "1.25e-06"]
+    assert all(" uic" not in t for t in texts), "严格设置不跳过直流工作点"
+    assert "attempt accuracy" in texts[0]
+
+
+def test_strict_settings_leave_the_circuit_itself_alone() -> None:
+    def circuit(text: str) -> list[str]:
+        return [x for x in text.splitlines() if not x.startswith((".options", ".tran", "*"))]
+
+    folder = EXAMPLES / "overcurrent_cutoff"
+    base = circuit(from_folder(folder, "A1", 0).text)
+    assert circuit(strict(folder, "A1", 2, ("method=gear",)).text) == base
+
+
+def test_the_error_factor_is_only_written_for_transient_analyses() -> None:
+    text = strict(CIRCUITS / "voltage_divider", "A1", 1, ("method=gear",)).text
+    assert "trtol" not in text and ".options method=gear\n" in text
+
+
+def test_the_four_convergence_attempts_do_not_set_the_error_factor() -> None:
+    """收敛重试只负责出判定，维持 ngspice 默认的误差控制；峰值另走严格设置。"""
+    assert all(a.trtol is None for a in ATTEMPTS)
 
 
 def test_building_does_not_modify_its_inputs() -> None:
