@@ -1,4 +1,4 @@
-"""G1（IR 校验 + 自写规则）在 examples/ 的 11 个样例上的回归结果。
+"""G1（IR 校验 + 自写规则）在 examples/ 的 12 个样例（含 li4s_protect）上的回归结果。
 AGENTS.md：改判定逻辑要附样例回归。
 
 需要 KiCad 自带的符号库和封装库（.tools/kicad/share，Linux 上是 /usr/share/kicad）；
@@ -48,8 +48,8 @@ def test_example_static_result(path) -> None:  # type: ignore[no-untyped-def]
     assert report.passed == (path.parent.name not in KNOWN_SAMPLE_PROBLEMS)
 
 
-def test_there_are_eleven_examples() -> None:
-    assert len(EXAMPLES) == 11
+def test_there_are_twelve_examples() -> None:
+    assert len(EXAMPLES) == 12
 
 
 SPEC_FOLDERS = sorted(
