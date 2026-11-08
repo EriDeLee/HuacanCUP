@@ -231,8 +231,9 @@
 ### D21 G3 的网络电流取法，线宽检查的细节
 
 - 选了：每个网络的电流 = max(spec 接口的 `i_max`，G2 仿真的这个网络电流上界)。上界取
-  「各引脚电流绝对值之和的一半」在时间上的最大值——任何一段走线上的电流都不会超过它
-  （把网络的引脚分成两边，穿过切口的电流等于一边的净流出，不超过两边绝对值和较小的那个）。
+  「网络上各端点电流绝对值之和的一半」在时间上的最大值——任何一段走线上的电流都不会超过它
+  （把网络的端点分成两边，穿过切口的电流等于一边的净流出，不超过两边绝对值和较小的那个）。
+  端点包括元件的引脚、接口电源的两头（电源端和地）、负载的两头。
   没有电流数据的网络不查，只在 `counts.width_unchecked` 里计数。外层（F.Cu、B.Cu）和内层（In*.Cu）各按各的 k 值，
   取每层最窄的一段与最小线宽比；铜厚 35 µm、温升 10 °C 放在 `config.yaml` 的 `pcb:`。
 - 其他选项：只用 spec 的 `i_max`；取单个引脚的最大电流（会漏掉多路汇合的网络）；忽略短于某长度的线段
@@ -246,4 +247,101 @@
 - 其他选项：严格按宽 × 高比，不许转。
 - 理由：`board_max_mm` 描述的是外壳里能放下多大一块板，板子转 90° 放是自然的。
 - 撤回：`gates/drc.py` 的 `drc_checks`。
+
+### D23 连接器、测试点、安装孔在仿真里怎么处理
+
+- 选了：**不进网表**。连接器（`role` 是 connector、在板边连接器列表里、或符号库名以 Connector 开头）、
+  测试点、安装孔（`ir/parts.py` 的 `is_connector`）接的网络照样存在；接口（spec 的 `interfaces`）
+  上的电源、信号源、负载直接接在网络上，也就是「由接口激励代替连接器」。
+- 其他选项：连接器当开路元件放进网表（多一堆不接东西的节点）；给连接器一个等效模型（接口激励之外
+  再造一套）；测试点串一个大电阻。
+- 理由：连接器在电气上只是把板外的东西接到网络上，板外的东西正是 spec 的接口描述的。
+  规则简单，不用给每种连接器造模型。要测连接器引脚的电流，请用接口名（`I(VIN)`），
+  `I(J1.1)` 会报「连接器不进网表」。
+- 撤回：`sim/testbench.py` 的 `add_parts`。
+
+### D24 恒流负载两端电压低时自己退出
+
+- 选了：`current_dc`、`current_step` 负载是 B 源，电流乘 0.5·(1 + tanh((V − 1) / 0.1))，
+  两端电压低于约 1 V 时电流压到零（像电子负载的欠压保护）。
+- 其他选项：理想电流源（保护电路断开开关后，节点被拉到无穷大，实测 `overcurrent_cutoff` 的前三档
+  收敛设置都在切断后的边沿上崩了）；负载并一个电容（边沿还是几十 V/ns）；只允许电阻负载。
+- 理由：理想电流源接到断开的开关上不是物理上存在的东西。没解决边沿太陡的全部问题：
+  `overcurrent_cutoff` 的 A1、A3 仍要靠收敛重试第 4 档（缩短步长 + uic）才跑通，重试记录在报告里。
+- 撤回：`sim/testbench.py` 的 `_clamp`。
+
+### D25 新增依赖：numpy 和 matplotlib
+
+- 选了：`requirements.txt` 加 `numpy==2.5.4`、`matplotlib==3.11.2`（版本就是 venv 里原来就装着的，
+  它们是 SKiDL 的间接依赖；现在我们自己 import，所以改成直接依赖并写死版本，ADR-0005）。
+  numpy 用在测量、峰值计算、摆放；matplotlib 用 Agg 后端画 `sim/plots/*.png`。
+  matplotlib 的配置和字体缓存指到沙箱目录（`MPLCONFIGDIR`），不写到项目外。
+  图上的文字只用英文，因为 Linux 云端没有中文字体。
+- 任务书写「按 ADR-0006 写死版本」：ADR-0006 讲的是 `tasks.py`，写死直接依赖版本的规则在 ADR-0005，我按 ADR-0005 做。
+- 其他选项：不用画图库，自己写 SVG（零依赖，但图丑、要自己做坐标轴）；用 plotly（体积更大）。
+- 撤回：删 `sim/plots.py` 和 `requirements.txt` 里的 matplotlib。
+
+### D26 SPICE 模型的来源：哪些是厂商的，哪些不是
+
+- 选了（`models/README.md` 逐个写明）：
+  - `lm358.lib`：National Semiconductor（现 TI）的 LM358 宏模型，文件头允许复制分发，不得转售。
+    三处 `POLY(1)` 源改写成等价的 B 源（ngspice 的 POLY 要代码模型 `spice2poly.cm`，Ubuntu 的 `libngspice0`
+    不带它，改写后在任何 ngspice 上都能跑）。
+  - `ua555.lib`：ngspice 项目示例里的 Fairchild uA555（NE555 的同类）晶体管级模型，来源 1982 年数据手册。
+  - `lm393.lib`：1990 年 PARTS 生成的 National Semiconductor / TI LM393 宏模型，**文件里没有许可文字，
+    没能确认能不能再分发**。要换就换成 TI 官网当前的 LM393 PSpice 模型。
+  - `irlz44n.lib`：**本仓库自写的 VDMOS 模型卡，不是厂商模型**，参数来自 Infineon 数据手册
+    （RDS(on)、VGS(th)、gfs、Ciss）加通用值，文件头逐项写明。没用厂商模型是因为没核实它的再分发条款。
+- 其他选项：这四个器件都报 `sim_error`（模型缺失）——那样 5 个手写电路里有 3 个测不了；
+  去下载 TI / Infineon 的官方模型提交进仓库（许可没核实）。
+- 请你定：LM393 的许可是否接受；IRLZ44N 这种手写的 VDMOS 卡算不算「智能体拟合的行为模型」
+  （任务书说那是 M4 的事）。我的理解是：这只是和 `led_red_generic.lib` 一样的测试夹具，不是拟合流程。
+
+### D27 两个新电路放在 `tests/circuits/`，不放 `examples/`
+
+- 选了：分压和 RC 低通是 M2 新做的两个小电路，各有 `design.json` 和 `spec.json`，放 `tests/circuits/`；
+  `ne555_astable`、`lm358_amp`、`overcurrent_cutoff` 复用 `examples/` 里原有的设计，各加了 `spec.json`，
+  并给用到的器件补了 `spice` 字段。
+- 其他选项：新电路也放 `examples/`（样例变成 13 个，任务书里「11 个样例」的数字、
+  M1 的 `test_examples`、摆放验收的样例集都会变口径）。
+- 撤回：把两个文件夹挪到 `examples/`，`tests/tools/test_g1_examples.py` 里「11 个」的断言改成 13。
+
+### D28 测量以 `.meas` 为主；op 和 freq_at_db 取向量
+
+- 选了：测试台生成器为每条验收标准写 `.meas` 语句，G2 从 ngspice 的输出里读结果（任务书和 PLAN §7 的说法）。
+  两种例外：`op` 分析没有 `.meas`，取工作点向量；`freq_at_db` 要先把输出除以参考信号再找交点，
+  `.meas` 对复数的比值做不了，在复数向量上找（对数频率上线性插值）。
+  另外 `.meas` 报 failed 时（条件一开始就成立，或者信号根本没越过条件）回头看向量，区分
+  「电路没做到」（fail）和「测量本身出错」（sim_error）。
+- 其他选项：全部在 Python 里用 numpy 量（语义最清楚，也不依赖 ngspice 版本的 `.meas` 细节，但网表里就没有 `.meas`）。
+- 撤回：`sim/measure.py`、`sim/testbench.py` 的 `_meas_lines`。
+
+### D29 收敛重试每一档的设置，uic 起步的冲击不算峰值
+
+- 选了：四档**逐档叠加**——① 默认；② 放宽 `gmin=1e-9 reltol=0.01 abstol=1e-9 vntol=1e-4`；
+  ③ 再加 `method=gear`；④ 再加 `itl1=1000 itl2=500 itl4=100`，瞬态再加 `uic` 并把最大步长缩到十分之一
+  （非瞬态分析 `uic` 没有意义，第 4 档只剩迭代次数）。只有不收敛一类的错误（Timestep too small、
+  no convergence、singular matrix……）才进下一档；模型找不到、语法错、超时直接停，报 sim_error。
+  `uic` 一开始所有节点从 0 V 起步，电源对电容有几十上百安的假冲击，所以用了 `uic` 的那一档，
+  额外测量（峰值、网络电流上界）不统计头 0.5 % 的仿真时间。
+- 其他选项：每档只改一项（不叠加）；`uic` 作为单独的一档（第 5 档）。
+- 撤回：`sim/testbench.py` 的 `ATTEMPTS`、`sim/stress.py` 的 `UIC_SKIP`。
+
+### D30 G2 的几个边界
+
+- 选了：spec 里一条验收标准都没有时，G2 **不通过**（`no_acceptance`），因为没有东西可判定，
+  不能空着通过；测量值是 NaN 或无穷、`.meas` 没出结果，一律 `sim_error`；
+  `fail`（电路没做到）和 `sim_error`（没得出结果）分开统计，两者都不算通过。
+- 理由：AGENTS.md 原则 1，只有真的量到并且满足才能写 passed。
+- 撤回：`gates/sim.py`。
+
+### D31 NE555 的频率允许 ±10 % 的误差
+
+- 起因：用 Fairchild uA555 模型仿真，5 V 下它的下阈值是 0.37 倍电源电压（1.85 V，理想 1.67 V），
+  上阈值 0.675 倍（理想 0.667）。NE555 数据手册允许 5 V 下触发电压 1.1–2.2 V、阈值电压 2.7–4.0 V，
+  所以这在手册的范围内。结果：仿真 7.37 Hz，理想公式 1.44 / ((R1 + 2 R2) C1) = 6.86 Hz，差 +7.4 %。
+- 选了：`examples/ne555_astable/spec.json` 的 A1 窗口取 6.17–7.54 Hz（公式值 ±10 %），原因写在 spec 的 `assumptions` 里。
+- 其他选项：窗口收窄到 ±3 %（会判 fail，但那是模型的问题，不是电路的）；换成阈值更理想的 CMOS 555 模型
+  （和 NE555P 这个器件对不上）。
+- 撤回：改 spec 的 `pass`。
 

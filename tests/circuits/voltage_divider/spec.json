@@ -1,0 +1,28 @@
+{
+  "id": "spec-voltage-divider",
+  "summary": "12 V 经 30 kΩ / 10 kΩ 分压，给 ADC 一个 3 V 的输入",
+  "interfaces": [
+    {"name": "VIN", "kind": "power_in", "v_nom": 12.0},
+    {"name": "MID", "kind": "signal_out"}
+  ],
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "分压点电压 3.0 V（容差 ±1 %）",
+      "testbench": {"type": "op"},
+      "measure": {"kind": "value_at", "signal": "V(MID)"},
+      "pass": {"op": "between", "low": 2.97, "high": 3.03, "unit": "V"}
+    },
+    {
+      "id": "A2",
+      "text": "从电源取的电流 0.3 mA（容差 ±5 %）",
+      "testbench": {"type": "op"},
+      "measure": {"kind": "value_at", "signal": "I(VIN)"},
+      "pass": {"op": "between", "low": 0.000285, "high": 0.000315, "unit": "A"}
+    }
+  ],
+  "assumptions": [
+    "手算：V(MID) = 12 V × R2 / (R1 + R2) = 12 × 10 k / 40 k = 3.000 V；电流 = 12 V / (R1 + R2) = 12 / 40 k = 0.300 mA",
+    "仿真里的电阻是理想阻值，所以计算值和仿真值应当几乎完全相等；容差留给元件值的舍入"
+  ]
+}

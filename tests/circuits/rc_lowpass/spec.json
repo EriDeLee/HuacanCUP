@@ -1,0 +1,38 @@
+{
+  "id": "spec-rc-lowpass",
+  "summary": "RC 一阶低通，截止频率约 1.59 kHz",
+  "interfaces": [
+    {"name": "IN", "kind": "signal_in"},
+    {"name": "OUT", "kind": "signal_out"}
+  ],
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "-3 dB 点在 1588 Hz（容差 ±1 %）",
+      "testbench": {
+        "type": "ac",
+        "stimulus": {"drive": {"IN": {"kind": "ac", "dc": 0.0, "magnitude": 1.0}}},
+        "sweep": {"start": 10, "stop": "100k", "points_per_decade": 50}
+      },
+      "measure": {"kind": "freq_at_db", "signal": "V(OUT)", "db": -3.0},
+      "pass": {"op": "between", "low": 1572.0, "high": 1604.0, "unit": "Hz"}
+    },
+    {
+      "id": "A2",
+      "text": "10 kHz 处增益 -16.07 dB（容差 ±0.1 dB）",
+      "testbench": {
+        "type": "ac",
+        "stimulus": {"drive": {"IN": {"kind": "ac", "dc": 0.0, "magnitude": 1.0}}},
+        "sweep": {"start": 10, "stop": "100k", "points_per_decade": 50}
+      },
+      "measure": {"kind": "gain_db_at", "signal": "V(OUT)", "at": "10k"},
+      "pass": {"op": "between", "low": -16.17, "high": -15.97, "unit": "dB"}
+    }
+  ],
+  "assumptions": [
+    "手算：fc = 1 / (2π·R·C) = 1 / (2π × 10 kΩ × 10 nF) = 1591.5 Hz（此处增益 −3.0103 dB）",
+    "手算 −3.000 dB 点：|H|² = 1 / (1 + (f/fc)²) = 10^(−0.3) → f = fc × √(10^0.3 − 1) = 1591.5 × 0.99763 = 1587.8 Hz",
+    "手算 10 kHz 处：增益 = −10·log10(1 + (10000 / 1591.5)²) = −10·log10(40.478) = −16.07 dB",
+    "仿真里的阻容是理想的，计算值和仿真值应当几乎完全相等；−3 dB 点在两个仿真频点之间按对数频率线性插值"
+  ]
+}

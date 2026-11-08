@@ -19,6 +19,8 @@ from typing import Any
 
 from eda_agent.emit.kicad_sym import SymbolDef, load_symbol
 from eda_agent.ir.models import Design
+from eda_agent.tools.ngspice import SimResult
+from eda_agent.tools.runner import ToolResult
 
 SYMBOLS: dict[str, dict[str, list[tuple[str, str, str]]]] = {
     "Device": {
@@ -121,3 +123,51 @@ def net(name: str, *nodes: str, **extra: Any) -> dict[str, Any]:
 
 def symbols_for(d: Design, lib_dirs: tuple[Path, ...]) -> dict[str, SymbolDef]:
     return {p.ref: load_symbol(p.symbol, lib_dirs) for p in d.parts}
+
+
+def meas_output(**values: float | None) -> list[str]:
+    """ngspice 打印 .meas 结果的样子；None 是测不出来的那种。"""
+    lines = ["stdout Measurements for Transient Analysis"]
+    for name, value in values.items():
+        if value is None:
+            lines.append(f"stderr .meas tran {name} when v(x)=1 rise=1 failed!")
+        else:
+            lines.append(f"stdout {name:<20}=  {value:.6e}")
+    return lines
+
+
+def fake_sim(
+    vectors: dict[str, list[float]] | None = None,
+    *,
+    complex_vectors: dict[str, tuple[list[float], list[float]]] | None = None,
+    output: list[str] | None = None,
+    ok: bool = True,
+    errors: list[str] | None = None,
+    timed_out: bool = False,
+    exit_code: int | None = 0,
+    **meas: float | None,
+) -> SimResult:
+    """不用 ngspice 的假结果。meas 里的键值会变成 .meas 的输出行。"""
+    tool = ToolResult(
+        tool="ngspice",
+        argv=("fake",),
+        cwd=Path("."),
+        exit_code=exit_code,
+        timed_out=timed_out,
+        termination="none",
+        duration_s=0.0,
+        stdout="",
+        stderr="",
+        stdout_path=None,
+        stderr_path=None,
+    )
+    lines = list(output or []) + (meas_output(**meas) if meas else [])
+    return SimResult(
+        ok=ok,
+        vectors=vectors or {},
+        errors=errors or [],
+        output=lines,
+        result_json=Path("fake.json"),
+        tool=tool,
+        complex_vectors=complex_vectors or {},
+    )

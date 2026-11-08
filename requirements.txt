@@ -2,3 +2,7 @@
 skidl==3.0.0
 pydantic==2.14.2
 PyYAML==6.0.3
+# M2: waveform plots (matplotlib) and numerical post-processing of simulation results / placement (numpy).
+# Both were already installed as transitive dependencies of skidl; now pinned because we import them.
+numpy==2.5.4
+matplotlib==3.11.2

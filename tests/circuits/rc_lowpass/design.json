@@ -1,0 +1,29 @@
+{
+  "spec_sha256": null,
+  "blocks": [{"id": "filter", "purpose": "RC 一阶低通：10 kΩ 和 10 nF，截止频率约 1.59 kHz"}],
+  "parts": [
+    {
+      "ref": "J1", "block": "filter", "value": "IN",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    },
+    {"ref": "R1", "block": "filter", "value": "10k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
+    {"ref": "C1", "block": "filter", "value": "10nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
+    {
+      "ref": "J2", "block": "filter", "value": "OUT",
+      "symbol": "Connector_Generic:Conn_01x02",
+      "footprint": "Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical"
+    }
+  ],
+  "nets": [
+    {"name": "IN", "nodes": [["J1", "1"], ["R1", "1"]]},
+    {"name": "OUT", "nodes": [["R1", "2"], ["C1", "1"], ["J2", "1"]]},
+    {"name": "GND", "nodes": [["J1", "2"], ["C1", "2"], ["J2", "2"]], "external_supply": true}
+  ],
+  "board": {
+    "size_mm": [30, 20],
+    "layers": 2,
+    "edge_connectors": [{"ref": "J1", "side": "left"}, {"ref": "J2", "side": "right"}]
+  },
+  "notes": ["M2 的仿真验证用小电路（review-queue D27）：fc = 1 / (2π·R·C) = 1591.5 Hz"]
+}

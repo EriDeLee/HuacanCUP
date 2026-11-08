@@ -8,7 +8,7 @@ from typing import Literal
 
 from eda_agent.ir.models import Design, Part
 
-# 连接器、测试点、安装孔：仿真里没有意义（review-queue D17），不进网表。
+# 连接器、测试点、安装孔：仿真里没有意义（review-queue D23），不进网表。
 NON_ELECTRICAL_LIBS = ("Connector", "TestPoint", "MountingHole", "Mechanical")
 
 PassiveKind = Literal["R", "C", "L"]

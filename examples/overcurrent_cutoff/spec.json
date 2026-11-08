@@ -1,0 +1,54 @@
+{
+  "id": "spec-overcurrent-cutoff",
+  "summary": "低边过流切断：10 mΩ 采样电阻上超过约 50 mV（约 5 A）时，比较器把 MOSFET 的栅极拉低",
+  "interfaces": [
+    {"name": "VBAT", "kind": "power_in", "v_min": 10.0, "v_nom": 12.0, "v_max": 16.8, "i_max": 10.0, "notes": "3S / 4S 锂电"},
+    {"name": "+5V", "kind": "power_in", "v_nom": 5.0, "notes": "比较器和上拉的逻辑电源"},
+    {"name": "LOAD_N", "kind": "power_out", "i_max": 10.0, "notes": "负载接在 VBAT 和 LOAD_N 之间，开关在地侧"}
+  ],
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "负载电流从 1 A 突增到 10 A（超过约 5 A 的阈值）时，1 ms 内切断（负载电流降到 0.5 A 以下）",
+      "testbench": {
+        "type": "transient",
+        "stimulus": {"load": {"kind": "current_step", "from": 1.0, "to": 10.0, "at": "2ms", "between": ["VBAT", "LOAD_N"]}},
+        "sim_time": "6ms",
+        "max_step": "5us"
+      },
+      "measure": {"kind": "time_until", "signal": "I(LOAD_N)", "condition": "< 0.5", "after": "2ms"},
+      "pass": {"op": "<=", "value": 0.001, "unit": "s"}
+    },
+    {
+      "id": "A2",
+      "text": "正常负载 2 A（低于阈值）时不误切断：负载电流一直不低于 1.9 A",
+      "testbench": {
+        "type": "transient",
+        "stimulus": {"load": {"kind": "current_dc", "value": 2.0, "between": ["VBAT", "LOAD_N"]}},
+        "sim_time": "5ms",
+        "max_step": "5us"
+      },
+      "measure": {"kind": "min", "signal": "I(LOAD_N)", "from": "0.5ms"},
+      "pass": {"op": ">=", "value": 1.9, "unit": "A"}
+    },
+    {
+      "id": "A3",
+      "text": "持续过载（10 A）时输出保持切断：切断以后（3 ms 起）负载电流最大值不超过阈值 5 A",
+      "testbench": {
+        "type": "transient",
+        "stimulus": {"load": {"kind": "current_step", "from": 1.0, "to": 10.0, "at": "2ms", "between": ["VBAT", "LOAD_N"]}},
+        "sim_time": "10ms",
+        "max_step": "5us"
+      },
+      "measure": {"kind": "max", "signal": "I(LOAD_N)", "from": "3ms", "to": "10ms"},
+      "pass": {"op": "<=", "value": 5.0, "unit": "A"}
+    }
+  ],
+  "constraints": {"board_max_mm": [80, 50], "layers_max": 2},
+  "assumptions": [
+    "手算触发电流：基准 VREF = 5 V × 1 kΩ / (100 kΩ + 1 kΩ) = 49.5 mV，采样电阻 10 mΩ，所以阈值 4.95 A",
+    "手算切断时间：R2·C2 = 1 kΩ × 100 nF = 100 µs 的滤波，10 A 时采样电压 100 mV，滤波后到基准的时间 = −τ·ln(1 − 49.5 / 100) = 68 µs，再加比较器响应和栅极放电几微秒，约 75 µs",
+    "负载是恒流源，两端电压低于约 1 V 时自己退出，像电子负载的欠压保护；真实负载（电感、电容性）的行为不同",
+    "A3 按保护器该有的要求写（切断后不再回到过载电流）；这个电路的设计说明里写着它是「打嗝式」限流，不是锁存，验收标准没有为了迁就它去改"
+  ]
+}

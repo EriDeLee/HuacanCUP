@@ -123,6 +123,24 @@ def test_bad_specs_are_rejected_with_a_reason(change: Any, match: str) -> None:
         Spec.model_validate(_break(change))
 
 
+def test_every_spec_file_in_the_repository_is_valid() -> None:
+    """examples/ 和 tests/circuits/ 下的 spec.json 既满足 JSON Schema，也能被模型读进来。"""
+    from eda_agent.config import REPO_ROOT
+    from eda_agent.ir.spec import load_spec
+
+    paths = sorted(
+        [
+            *(REPO_ROOT / "examples").glob("*/spec.json"),
+            *(REPO_ROOT / "tests" / "circuits").glob("*/spec.json"),
+        ]
+    )
+    assert len(paths) == 5
+    validator = jsonschema.Draft202012Validator(spec_json_schema())
+    for path in paths:
+        validator.validate(json.loads(path.read_text(encoding="utf-8")))
+        assert load_spec(path).acceptance, path
+
+
 def test_between_needs_low_below_high() -> None:
     data = _example()
     data["acceptance"][0]["pass"] = {"op": "between", "low": 1, "high": 2, "unit": "s"}

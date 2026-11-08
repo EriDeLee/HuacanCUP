@@ -9,7 +9,11 @@
     },
     {
       "ref": "U1", "block": "timer", "value": "NE555P",
-      "symbol": "Timer:NE555P", "footprint": "Package_DIP:DIP-8_W7.62mm", "mpn": "NE555P"
+      "symbol": "Timer:NE555P", "footprint": "Package_DIP:DIP-8_W7.62mm", "mpn": "NE555P",
+      "spice": {
+        "model": "NE555", "lib": "models/ua555.lib",
+        "pin_map": {"1": "GND", "2": "TRIG", "3": "OUT", "4": "RESET", "5": "CTRL", "6": "THRES", "7": "DISCH", "8": "VCC"}
+      }
     },
     {"ref": "R1", "block": "timer", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
     {"ref": "R2", "block": "timer", "value": "10k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
@@ -17,7 +21,10 @@
     {"ref": "C2", "block": "timer", "value": "10nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
     {"ref": "C3", "block": "timer", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
     {"ref": "R3", "block": "timer", "value": "330", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
-    {"ref": "D1", "block": "timer", "value": "Red", "symbol": "Device:LED", "footprint": "LED_SMD:LED_0805_2012Metric"}
+    {
+      "ref": "D1", "block": "timer", "value": "Red", "symbol": "Device:LED", "footprint": "LED_SMD:LED_0805_2012Metric",
+      "spice": {"model": "LED_RED_GENERIC", "lib": "models/led_red_generic.lib", "pin_map": {"1": "K", "2": "A"}}
+    }
   ],
   "nets": [
     {"name": "+5V", "nodes": [["J1", "1"], ["U1", "8"], ["U1", "4"], ["R1", "1"], ["C3", "1"]], "external_supply": true},

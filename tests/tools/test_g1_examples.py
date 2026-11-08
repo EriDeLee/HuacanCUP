@@ -16,6 +16,7 @@ import pytest
 from eda_agent.config import REPO_ROOT, load_config
 from eda_agent.gates.static import static_gate
 from eda_agent.ir.models import load_design
+from eda_agent.ir.spec import load_spec
 
 pytestmark = pytest.mark.tools
 
@@ -49,3 +50,36 @@ def test_example_static_result(path) -> None:  # type: ignore[no-untyped-def]
 
 def test_there_are_eleven_examples() -> None:
     assert len(EXAMPLES) == 11
+
+
+SPEC_FOLDERS = sorted(
+    [
+        *(REPO_ROOT / "examples").glob("*/spec.json"),
+        *(REPO_ROOT / "tests" / "circuits").glob("*/spec.json"),
+    ]
+)
+
+
+@pytest.mark.parametrize("path", SPEC_FOLDERS, ids=lambda p: p.parent.name)
+def test_every_spec_maps_onto_its_design_and_passes_g1(path) -> None:  # type: ignore[no-untyped-def]
+    """接口名 = 网络名（D13），测量里的网络、位号、引脚都找得到，额定值第一轮也过。"""
+    cfg = load_config()
+    report = static_gate(
+        load_design(path.parent / "design.json"),
+        load_spec(path),
+        symbol_dirs=(cfg.tools.kicad_share / "symbols",),
+        footprint_dir=cfg.tools.kicad_share / "footprints",
+        derating=cfg.gates.derating,
+    )
+    assert report.passed, [f.message for f in report.findings]
+
+
+def test_the_five_hand_circuits_all_have_a_spec() -> None:
+    names = {p.parent.name for p in SPEC_FOLDERS}
+    assert names == {
+        "voltage_divider",
+        "rc_lowpass",
+        "ne555_astable",
+        "lm358_amp",
+        "overcurrent_cutoff",
+    }

@@ -13,8 +13,13 @@ import ctypes
 import json
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+
+
+class _Complex(ctypes.Structure):
+    _fields_ = [("re", ctypes.c_double), ("im", ctypes.c_double)]
 
 
 class _VectorInfo(ctypes.Structure):
@@ -23,12 +28,13 @@ class _VectorInfo(ctypes.Structure):
         ("v_type", ctypes.c_int),
         ("v_flags", ctypes.c_short),
         ("v_realdata", ctypes.POINTER(ctypes.c_double)),
-        ("v_compdata", ctypes.c_void_p),
+        ("v_compdata", ctypes.POINTER(_Complex)),
         ("v_length", ctypes.c_int),
     ]
 
 
 _VF_REAL = 1
+_VF_COMPLEX = 2
 _SendChar = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_void_p)
 _SendStat = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_void_p)
 _ControlledExit = ctypes.CFUNCTYPE(
@@ -64,7 +70,15 @@ def _load(lib_path: Path) -> ctypes.CDLL:
     return lib
 
 
-def simulate(lib_path: Path, netlist: Path) -> dict[str, Any]:
+def simulate(
+    lib_path: Path,
+    netlist: Path,
+    *,
+    settings: Sequence[str] = (),
+    raw: Path | None = None,
+) -> dict[str, Any]:
+    """settings：加载电路之前执行的 `set …`（如 ngbehavior=ltpsa）；
+    raw：仿真后把全部向量写成 .raw。"""
     lib = _load(lib_path)
     output: list[str] = []
     exit_info: dict[str, Any] = {}
@@ -84,14 +98,19 @@ def simulate(lib_path: Path, netlist: Path) -> dict[str, Any]:
     callbacks = (_SendChar(on_char), _SendStat(on_stat), _ControlledExit(on_exit))
     lib.ngSpice_Init(*callbacks, None, None, None, None)
     lib.ngSpice_Command(b"version")
+    for setting in settings:
+        lib.ngSpice_Command(f"set {setting}".encode())
 
     lines = [line.encode("utf-8") for line in netlist.read_text(encoding="utf-8").splitlines()]
     circ = (ctypes.c_char_p * (len(lines) + 1))(*lines, None)
     rc_circ = lib.ngSpice_Circ(circ)
     rc_run = lib.ngSpice_Command(b"run") if rc_circ == 0 else None
+    if raw is not None and rc_run == 0:
+        lib.ngSpice_Command(f"write {raw.as_posix()} all".encode())
 
     plot = (lib.ngSpice_CurPlot() or b"").decode("utf-8")
     vectors: dict[str, list[float]] = {}
+    complex_vectors: dict[str, dict[str, list[float]]] = {}
     names = lib.ngSpice_AllVecs(plot.encode("utf-8"))
     i = 0
     while names and names[i]:
@@ -103,6 +122,11 @@ def simulate(lib_path: Path, netlist: Path) -> dict[str, Any]:
         vec = info.contents
         if vec.v_flags & _VF_REAL and vec.v_realdata:
             vectors[name] = [vec.v_realdata[k] for k in range(vec.v_length)]
+        elif vec.v_flags & _VF_COMPLEX and vec.v_compdata:
+            complex_vectors[name] = {
+                "re": [vec.v_compdata[k].re for k in range(vec.v_length)],
+                "im": [vec.v_compdata[k].im for k in range(vec.v_length)],
+            }
 
     errors = [line for line in output if line.lower().startswith("stderr error")]
     return {
@@ -111,6 +135,7 @@ def simulate(lib_path: Path, netlist: Path) -> dict[str, Any]:
         "errors": errors,
         "plot": plot,
         "vectors": vectors,
+        "complex_vectors": complex_vectors,
         "output": output,
         "exit": exit_info,
         "_keepalive": len(callbacks),
@@ -122,8 +147,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lib", type=Path, required=True)
     parser.add_argument("--netlist", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--set", dest="settings", action="append", default=[], help="加载电路前执行 set <值>"
+    )
+    parser.add_argument("--raw", type=Path, help="仿真后把全部向量写成 .raw 文件")
     args = parser.parse_args(argv)
-    result = simulate(args.lib, args.netlist)
+    result = simulate(args.lib, args.netlist, settings=args.settings, raw=args.raw)
     result.pop("_keepalive")
     args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0 if result["ok"] else 1

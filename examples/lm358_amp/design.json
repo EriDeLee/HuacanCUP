@@ -19,7 +19,11 @@
     },
     {
       "ref": "U1", "block": "amp", "value": "LM358",
-      "symbol": "Amplifier_Operational:LM358", "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+      "symbol": "Amplifier_Operational:LM358", "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+      "spice": {
+        "model": "LM358_DUAL", "lib": "models/lm358.lib",
+        "pin_map": {"1": "OUT1", "2": "IN1N", "3": "IN1P", "4": "VNEG", "5": "IN2P", "6": "IN2N", "7": "OUT2", "8": "VPOS"}
+      }
     },
     {"ref": "R1", "block": "amp", "value": "10k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
     {"ref": "R2", "block": "amp", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},

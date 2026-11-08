@@ -121,6 +121,11 @@ def warning_finding(id: str, message: str, **fields: Any) -> Finding:
     return Finding(id=id, severity="warning", status="fail", message=message, **fields)
 
 
+def sim_error_finding(id: str, message: str, **fields: Any) -> Finding:
+    """没得出结果（不收敛、超时、模型缺失）：不算通过，和 fail 分开统计。"""
+    return Finding(id=id, severity="error", status="sim_error", message=message, **fields)
+
+
 # ---------------------------------------------------------------- 余量
 
 

@@ -1,0 +1,49 @@
+* LM393 voltage comparator macro-model (one comparator per .SUBCKT LM393).
+*
+* Source: copy in github.com/semianalog/mod12003 (sim/LM393.sub). The text is the classic
+* "PARTS version 4.03" macro-model of 1990 for the National Semiconductor / TI LM393.
+* License: the file carries no license text, so the terms are NOT confirmed. See models/README.md;
+* replace it with the current TI model (https://www.ti.com/product/LM393) if redistribution matters.
+*
+* Changes made in this repository: none to the model; the wrapper LM393_DUAL at the end puts two
+* comparators into one package, in the pin order of the KiCad symbol Comparator:LM393.
+*
+* LM393 VOLTAGE COMPARATOR "MACROMODEL" SUBCIRCUIT
+* CREATED USING PARTS VERSION 4.03 ON 03/07/90 AT 14:17
+* REV (N/A)
+* CONNECTIONS:   NON-INVERTING INPUT
+*                | INVERTING INPUT
+*                | | POSITIVE POWER SUPPLY
+*                | | | NEGATIVE POWER SUPPLY
+*                | | | | OPEN COLLECTOR OUTPUT
+*                | | | | |
+.SUBCKT LM393    1 2 3 4 5
+*
+  F1    9  3 V1 1
+  IEE   3  7 DC 100.0E-6
+  VI1  21  1 DC .75
+  VI2  22  2 DC .75
+  Q1    9 21  7 QIN
+  Q2    8 22  7 QIN
+  Q3    9  8  4 QMO
+  Q4    8  8  4 QMI
+.MODEL QIN PNP(IS=800.0E-18 BF=2.000E3)
+.MODEL QMI NPN(IS=800.0E-18 BF=1002)
+.MODEL QMO NPN(IS=800.0E-18 BF=1000 CJC=1E-15 TR=807.4E-9)
+  E1   10  4  9  4  1
+  V1   10 11 DC 0
+  Q5    5 11  4 QOC
+.MODEL QOC NPN(IS=800.0E-18 BF=20.29E3 CJC=1E-15 TF=942.6E-12 TR=543.8E-9)
+  DP    4  3 DX
+  RP 3  4 46.3E3
+.MODEL DX  D(IS=800.0E-18)
+*
+.ENDS
+*
+* [eda_agent] Two comparators in one package. Port names follow the package pins of the
+* KiCad symbol: 1 OUT1, 2 IN1-, 3 IN1+, 4 GND, 5 IN2+, 6 IN2-, 7 OUT2, 8 VCC.
+* The outputs are open collector: they need a pull-up resistor in the circuit.
+.SUBCKT LM393_DUAL OUT1 IN1N IN1P GND IN2P IN2N OUT2 VCC
+XA IN1P IN1N VCC GND OUT1 LM393
+XB IN2P IN2N VCC GND OUT2 LM393
+.ENDS

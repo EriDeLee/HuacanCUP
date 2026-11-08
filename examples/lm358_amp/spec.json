@@ -1,0 +1,34 @@
+{
+  "id": "spec-lm358-amp",
+  "summary": "LM358 同相放大器，增益 1 + R1/R2 = 11（20.8 dB），单电源 5 V",
+  "interfaces": [
+    {"name": "+5V", "kind": "power_in", "v_nom": 5.0},
+    {"name": "IN", "kind": "signal_in", "notes": "输入要抬到 0 V 以上：LM358 的输出贴地时增益会掉"},
+    {"name": "OUT", "kind": "signal_out"}
+  ],
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "1 kHz 的小信号电压增益 20.8 dB（11 倍，容差 ±0.2 dB）",
+      "testbench": {
+        "type": "ac",
+        "stimulus": {"drive": {"IN": {"kind": "ac", "dc": 0.2, "magnitude": 1.0}}},
+        "sweep": {"start": 10, "stop": "10MEG", "points_per_decade": 50}
+      },
+      "measure": {"kind": "gain_db_at", "signal": "V(OUT)", "at": "1k"},
+      "pass": {"op": "between", "low": 20.63, "high": 21.03, "unit": "dB"}
+    },
+    {
+      "id": "A2",
+      "text": "输入偏置 0.2 V 时输出直流电压 2.2 V（容差 ±0.1 V）",
+      "testbench": {"type": "op", "stimulus": {"drive": {"IN": {"kind": "dc", "value": 0.2}}}},
+      "measure": {"kind": "value_at", "signal": "V(OUT)"},
+      "pass": {"op": "between", "low": 2.1, "high": 2.3, "unit": "V"}
+    }
+  ],
+  "constraints": {"board_max_mm": [60, 40], "layers_max": 2, "assembly": "hand_solder", "min_package": "0805"},
+  "assumptions": [
+    "手算增益 = 1 + R1/R2 = 1 + 10 kΩ / 1 kΩ = 11，20·log10(11) = 20.83 dB；输出直流 = 11 × 0.2 V = 2.2 V",
+    "增益容差 ±0.2 dB：LM358 的增益带宽积约 1 MHz，1 kHz 处环路增益约 1000 倍，闭环增益只比 11 小约 1 %（0.09 dB）；输入失调电压最多 2 mV，乘 11 倍约 22 mV"
+  ]
+}

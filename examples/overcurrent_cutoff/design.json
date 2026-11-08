@@ -24,12 +24,17 @@
     {
       "ref": "Q1", "block": "switch", "value": "IRLZ44N",
       "symbol": "Transistor_FET:IRLZ44N", "footprint": "Package_TO_SOT_THT:TO-220-3_Vertical",
-      "ratings": {"vds_max": 55, "id_max": 47}
+      "ratings": {"vds_max": 55, "id_max": 47},
+      "spice": {"model": "IRLZ44N", "lib": "models/irlz44n.lib", "pin_map": {"1": "G", "2": "D", "3": "S"}}
     },
     {"ref": "R1", "block": "switch", "value": "0.01", "symbol": "Device:R", "footprint": "Resistor_SMD:R_2512_6332Metric"},
     {
       "ref": "U1", "block": "sense", "value": "LM393",
-      "symbol": "Comparator:LM393", "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+      "symbol": "Comparator:LM393", "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
+      "spice": {
+        "model": "LM393_DUAL", "lib": "models/lm393.lib",
+        "pin_map": {"1": "OUT1", "2": "IN1N", "3": "IN1P", "4": "GND", "5": "IN2P", "6": "IN2N", "7": "OUT2", "8": "VCC"}
+      }
     },
     {"ref": "R2", "block": "sense", "value": "1k", "symbol": "Device:R", "footprint": "Resistor_SMD:R_0805_2012Metric"},
     {"ref": "C2", "block": "sense", "value": "100nF", "symbol": "Device:C", "footprint": "Capacitor_SMD:C_0805_2012Metric"},
@@ -61,9 +66,9 @@
     "net_classes": {"power": {"track_mm": 1.5, "clearance_mm": 0.4}}
   },
   "notes": [
-    "演示用：PLAN §0 的「电池与负载之间的过流保护器」的一个最简版本，未经仿真验证（M2 才有仿真关）",
+    "演示用：PLAN §0 的「电池与负载之间的过流保护器」的一个最简版本。M2 的 G2 仿真（spec.json）：10 A 阶跃后约 72 µs 切断（手算约 73 µs），2 A 正常负载不误切断；但持续过载时不保持切断，而是几十微秒一个周期反复导通，每个脉冲都回到 10 A（恒流负载），spec 的 A3 不通过",
     "采样电压经 R2/C2 滤波接比较器反相端；基准 VREF ≈ 5 V × 1k / 101k ≈ 49.5 mV 接同相端，超过即输出拉低、关断 Q1",
-    "R7 从输出接回同相端形成迟滞；关断后电流归零会再次导通，是「打嗝」式限流，不是锁存",
+    "R7 从输出接回同相端形成迟滞；关断后电流归零会再次导通，是「打嗝」式限流，不是锁存（M2 仿真里这个「打嗝」的周期约 40 µs）",
     "LM393 是双比较器：单元 B 同相端接地、反相端接 +5V，输出（7 脚）不接；单元 C 是电源"
   ]
 }

@@ -2,14 +2,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "trace.schema.json",
   "title": "runs/<id>/trace.jsonl 中的一行事件",
-  "description": "M0：tool_call、step。M1：snapshot（存了一版设计）、patch（应用 JSON Patch，成败都记）、gate（检查报告）。llm_call / human / cost 在后续里程碑加入。网页回放完全依赖这个文件。",
+  "description": "M0：tool_call、step。M1：snapshot（存了一版设计）、patch（应用 JSON Patch，成败都记）、gate（检查报告）。M2：可选的 branch（哪一路）。llm_call / human / cost 在后续里程碑加入。网页回放完全依赖这个文件。",
   "type": "object",
   "required": ["ts", "run_id", "seq", "type"],
   "properties": {
     "ts": {"type": "string", "format": "date-time"},
     "run_id": {"type": "string", "minLength": 1},
     "seq": {"type": "integer", "minimum": 0},
-    "type": {"enum": ["tool_call", "step", "snapshot", "patch", "gate"]}
+    "type": {"enum": ["tool_call", "step", "snapshot", "patch", "gate"]},
+    "branch": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "这条记录属于第几路（ADR-0016）；共享阶段不写或写 null。M2 只有 G2 和摆放写它，其余留给 M3"
+    }
   },
   "allOf": [
     {

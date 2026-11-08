@@ -1,0 +1,16 @@
+* IRLZ44N N-channel logic-level power MOSFET, ngspice VDMOS model card.
+*
+* NOT a vendor model. Written for this repository from the IRLZ44N data sheet (Infineon, IRLZ44NPbF).
+* The manufacturer's SPICE model was not used because its redistribution terms were not checked.
+* Used by the overcurrent_cutoff test circuit. M4 replaces hand-made cards like this one by models
+* that the agents fit from data sheet values and that pass the check in PLAN section 7 (G2).
+*
+* Values taken from the data sheet (all at 25 C):
+*   V(BR)DSS = 55 V; RDS(on) <= 25 mOhm at VGS = 5 V, ID = 25 A; VGS(th) = 1.0 to 2.0 V;
+*   gfs >= 21 S at VDS = 25 V, ID = 25 A; Ciss = 1700 pF (typ).
+* Derived: VTO = 1.5 V (middle of the VGS(th) range). KP = 16.8 A/V^2 and RD + RS = 8 mOhm make the
+*   on-resistance at VGS = 5 V about 25 mOhm and the transconductance at 25 A about 29 S.
+* Assumed (generic power MOSFET, not read from this data sheet): RG = 1.5 Ohm, CGDMIN = 150 pF,
+*   CGDMAX = 800 pF, CJO = 400 pF, body diode IS = 2e-12 A.
+* CGS = Ciss - CGDMIN = 1550 pF.
+.model IRLZ44N VDMOS(VTO=1.5 KP=16.8 RD=0.005 RS=0.003 RG=1.5 CGS=1550p CGDMIN=150p CGDMAX=800p CJO=400p IS=2e-12 RB=3m VDS=55)
