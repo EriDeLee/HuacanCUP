@@ -8,12 +8,13 @@ pcbnew 读出来的真几何在 tests/tools/test_placement_examples.py 里测。
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
-from eda_agent.config import PlacementConfig, PlacementWeights
+from eda_agent.config import PlacementConfig, PlacementWeights, load_config
 from eda_agent.ir.models import Design
 from eda_agent.placement import (
     PlacementError,
@@ -25,6 +26,7 @@ from eda_agent.placement import (
 from eda_agent.placement.geometry import ANGLES, BoardGeom, FootprintGeom, Shape
 from eda_agent.placement.legalize import _first_fit, legalize
 from eda_agent.placement.problem import Problem, build_problem
+from eda_agent.placement.run import place_board
 from eda_agent.placement.score import (
     block_spread,
     edge_term,
@@ -440,3 +442,20 @@ def test_energy_has_the_expected_parts() -> None:
     e = energy(p, p.init_pos, p.init_rot)
     assert e.overlap > 0 and e.total >= p.weights["overlap"] * e.overlap
     assert set(e._asdict()) == {"total", "hpwl", "overlap", "edge", "block", "flow"}
+
+
+# ---------------------------------------------------------------- 接进流水线
+
+
+def test_an_unknown_placement_mode_is_rejected_before_anything_runs(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="不认识的摆放方式"):
+        place_board(
+            load_config().tools,
+            tmp_path / "x.kicad_pcb",
+            chain_design(2),
+            CFG,
+            mode="grid",
+            work_dir=tmp_path / "work",
+            log_dir=tmp_path / "logs",
+        )
+    assert not (tmp_path / "work").exists()
