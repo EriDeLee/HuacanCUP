@@ -27,3 +27,19 @@ pcb:
   # G3 线宽检查和版图智能体定线宽（IPC-2221）：铜厚 1 oz/ft² = 35 µm，温升 10 °C
   copper_thickness_um: 35
   temp_rise_c: 10
+
+placement:
+  # 自动摆放（ADR-0018）。mode: auto = 模拟退火；rows = 原来的按行排（用来对比）
+  mode: auto
+  seed: 1 # 同样的输入和种子得到同样的摆放，种子写进 trace
+  restarts: 1 # >1 时用 seed、seed+1…各摆一次，取分数最好的
+  iterations_per_part: 1500
+  min_gap_mm: 1.0 # 元件 courtyard 之间的最小间隙
+  edge_margin_mm: 1.0 # courtyard 离板边的最小距离；板边连接器贴在这条线上
+  edge_preferred_mm: 2.5 # 非连接器元件离板边最好不要比这更近（分数里的一项）
+  weights: # 分数各项的权重，都换算成 mm 量级，hpwl 是 1
+    hpwl: 1.0 # 总线长
+    block: 0.5 # 同一功能块的元件聚在一起
+    flow: 0.3 # 信号按流向从左往右排
+    edge: 1.0 # 离板边太近
+    overlap: 40.0 # courtyard 重叠、出区域（每 mm）

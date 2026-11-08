@@ -23,3 +23,7 @@ gates:
 pcb:
   copper_thickness_um: 35
   temp_rise_c: 10
+
+placement:
+  mode: auto
+  seed: 1
