@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from eda_agent.config import REPO_ROOT, load_config  # noqa: E402
 from eda_agent.emit.kicad_project import emit_kicad_project  # noqa: E402
 from eda_agent.flow import copy_project, route_board  # noqa: E402
-from eda_agent.gates.drc import unrouted_nets  # noqa: E402
+from eda_agent.gates.drc import read_pcb, unrouted_nets  # noqa: E402
 from eda_agent.gates.kicad_reports import drc_gate  # noqa: E402
 from eda_agent.ir.models import load_design  # noqa: E402
 from eda_agent.placement.run import place_board  # noqa: E402
@@ -82,6 +82,8 @@ def run_variant(
             "unrouted_net_names": list(nets),
             "drc_errors": gate.counts["violations_errors"] + gate.counts["parity_errors"],
             "drc_error_types": sorted({f.id for f in gate.findings if f.id != "unconnected_items"}),
+            "drc_warnings": gate.counts["warnings"],
+            "track_length_mm": round(sum(t.length_mm for t in read_pcb(pcb).tracks), 1),
         }
     except Exception as exc:  # 一个布线器出错不影响别的样例
         entry["error"] = str(exc)[-800:]
@@ -99,10 +101,15 @@ def compare(rows: dict[str, Any], auto: dict[str, Any]) -> list[str]:
     return worse
 
 
+def pair(rows: dict[str, Any], auto: dict[str, Any], key: str) -> str:
+    return f"{rows.get(key, '出错')} / {auto.get(key, '出错')}"
+
+
 def table(results: dict[str, Any]) -> str:
     head = (
         "| 样例 | HPWL rows | HPWL auto | 变化 | 未布通网络 rows / auto | DRC 错误 rows / auto "
-        "| auto 摆放违规 | 摆放用时 |\n|---|---|---|---|---|---|---|---|\n"
+        "| DRC 警告 rows / auto | 走线总长 mm rows / auto | auto 摆放违规 | 摆放用时 |\n"
+        "|---|---|---|---|---|---|---|---|---|---|\n"
     )
     lines = []
     for name, entry in results.items():
@@ -110,8 +117,8 @@ def table(results: dict[str, Any]) -> str:
         change = auto["hpwl_mm"] / rows["hpwl_mm"] - 1 if rows["hpwl_mm"] else 0.0
         lines.append(
             f"| {name} | {rows['hpwl_mm']:.1f} | {auto['hpwl_mm']:.1f} | {change:+.0%} "
-            f"| {rows.get('unrouted_nets', '出错')} / {auto.get('unrouted_nets', '出错')} "
-            f"| {rows.get('drc_errors', '出错')} / {auto.get('drc_errors', '出错')} "
+            f"| {pair(rows, auto, 'unrouted_nets')} | {pair(rows, auto, 'drc_errors')} "
+            f"| {pair(rows, auto, 'drc_warnings')} | {pair(rows, auto, 'track_length_mm')} "
             f"| {len(auto['placement_violations'])} | {auto['placement_seconds']:.0f} s |"
         )
     return head + "\n".join(lines) + "\n"

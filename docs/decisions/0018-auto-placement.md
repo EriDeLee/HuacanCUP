@@ -57,11 +57,29 @@ li4s_protect 的手工摆放作为质量参照：用同一份 design.json，比�
 完成标准：在 `examples/` 的 11 个样例上元件不重叠、不出板、连接器贴边；拿到 li4s_protect 的 design.json 后和手工摆放对比。
 版图智能体给摆放提示的那部分跟着 M3 的版图智能体一起做。
 
+## M2 的实现（2026-11-08）
+
+代码在 `eda_agent/placement/`（算法，可用 numpy）和 `eda_agent/kicad_side/footprint_geometry.py`、`apply_placement.py`
+（读几何、写回位置）；`placement.mode` 是 `auto` 或 `rows`，缺省 `auto`，`rows` 保留原来的按行排用来对比。
+`board_build.py` 的 `place_parts` 没有改：它仍然负责第一遍按行排，自动摆放从这个结果出发。冒烟默认走 `auto`。
+
+`examples/` 的 11 个样例（`eval/m2_placement.py`，种子 1，fastroute 布线）：元件不重叠、不出板、板边连接器贴边，
+KiCad 自己的 DRC 也没有违规；HPWL 比按行排短 13 % 到 55 %，布线后的走线总长也短（uno_like_board 1724 → 1006 mm）；
+未布通网络数和 DRC 错误数两种摆放都是 0，所以「auto 不能比 rows 差」成立，没有变差的样例。
+有一处变差：KiCad 的丝印警告（`silk_overlap`）从 0 条涨到 19 条，是警告不是错误，记在 review-queue P2，等你定。
+li4s_protect 没有比较（design.json 不在仓库里，P3）。
+
 ## 没定的（PLAN §16）
 
-- 迭代优化用什么算法，分数各项的权重。
-- 种子的用法：一路只用一个，还是一路里试几个取最好。
-- IR 的 `board` 里摆放提示的字段名和格式（`schemas/design.schema.json` 要跟着改）。
-- 摆放放在哪个进程里算：`kicad_side/` 里只能用标准库和 pcbnew（ADR-0005），优化若要用 numpy 就得放在主程序里，
-  读封装几何和写回位置仍在 `kicad_side/`。
+M2 里按任务书做了，选择和理由记在 review-queue：
+
+- ~~迭代优化用什么算法，分数各项的权重~~：模拟退火加三档合法化（D32）；分数五项和权重初值（D33），权重在 `config.yaml`。
+- ~~种子的用法~~：一路默认一个种子，`restarts` 可以加大（D35）；用到的种子写进 trace。
+- ~~摆放放在哪个进程里算~~：算法在主程序（numpy），读几何、写回位置在 `kicad_side/`（D36）。
+
+还没定：
+
+- IR 的 `board` 里摆放提示的字段名和格式（`schemas/design.schema.json` 要跟着改）：跟着 M3 的版图智能体一起做。
 - 换布线器、版图智能体调整后重布，这两层回退怎么嵌套（ADR-0017）。
+- 和 li4s_protect 的手工摆放比哪些指标、比到什么程度算过：等 design.json（P3）。
+- 要不要把位号文字（丝印）也算进元件的占位，避免丝印警告（P2）。
