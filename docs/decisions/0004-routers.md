@@ -3,6 +3,9 @@
 - 状态：已采纳（2026-10-31，用户决定）：**fastroute 主用，KiCadRoutingTools 备用**；去掉 Freerouting 和 kicad-tools。
   2026-11-01 用户看过 TraceMaker 云端结果后补充决定：**部署（Linux）时 TraceMaker 主用，本机 Windows 照旧 fastroute + KRT**。
   部署在 M6 才做，到时把 TraceMaker 装进部署镜像、接进布线流程；现在只记下决定，代码没改
+- 已被 ADR-0017 取代的部分（2026-11-08）：上面状态里的「fastroute 主用」和「部署（Linux）时 TraceMaker 主用，本机 Windows 照旧」，
+  以及「最终决定」第 1、2 条里 fastroute 在前的顺序；现在是 TraceMaker 主用，fastroute、KRT 备用（本机 Windows 没有 TraceMaker，退回 fastroute）。
+  原文保留；实测数据和其余内容仍然有效
 - 影响：PLAN §2「布线」、§12 M0、§16；`eda_agent/tools/routers.py`、`config.py`、`smoke.py`
 
 ## 最终决定
