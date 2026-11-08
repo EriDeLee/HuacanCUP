@@ -8,8 +8,8 @@
 输出 runs/m2-placement-<时间>/results.json 和 table.md。
 auto 不能比 rows 差（未布通网络数、DRC 错误数）；
 变差的样例如实列在表后面，不为了好看去调参数。
-li4s_protect：examples/li4s_protect/design.json 在仓库里才比，
-没有就跳过并提醒，不自己编这个文件。
+li4s_protect：另有 examples/li4s_protect/manual/plan.json（手摆坐标）时，再加一路 manual：
+只取元件位置和角度，J1、J2 仍由建板程序贴边，用同一个布线器重新布线，不含铺铜和丝印。
 """
 
 from __future__ import annotations
@@ -30,7 +30,8 @@ from eda_agent.flow import copy_project, route_board  # noqa: E402
 from eda_agent.gates.drc import read_pcb, unrouted_nets  # noqa: E402
 from eda_agent.gates.kicad_reports import drc_gate  # noqa: E402
 from eda_agent.ir.models import load_design  # noqa: E402
-from eda_agent.placement.run import place_board  # noqa: E402
+from eda_agent.placement import PlacementResult, board_hpwl, check_board  # noqa: E402
+from eda_agent.placement.run import apply_positions, place_board, read_geometry  # noqa: E402
 from eda_agent.tools.kicad_cli import KicadCli  # noqa: E402
 from eda_agent.trace import TraceWriter  # noqa: E402
 
@@ -87,6 +88,72 @@ def run_variant(
         }
     except Exception as exc:  # 一个布线器出错不影响别的样例
         entry["error"] = str(exc)[-800:]
+    return entry
+
+
+def route_and_check(
+    cfg: Any, pcb: Path, out: Path, trace: TraceWriter, entry: dict[str, Any]
+) -> None:
+    logs = out / "logs"
+    try:
+        entry["route_seconds"] = round(
+            route_board(cfg.tools, pcb, "fastroute", log_dir=logs, trace=trace), 1
+        )
+        report = out / "drc.json"
+        KicadCli(cfg.tools, log_dir=logs, trace=trace).pcb_drc(pcb, report, severity="all")
+        gate = drc_gate(report)
+        nets = unrouted_nets(report)
+        entry |= {
+            "unrouted_nets": len(nets),
+            "unrouted_net_names": list(nets),
+            "drc_errors": gate.counts["violations_errors"] + gate.counts["parity_errors"],
+            "drc_error_types": sorted({f.id for f in gate.findings if f.id != "unconnected_items"}),
+            "drc_warnings": gate.counts["warnings"],
+            "track_length_mm": round(sum(t.length_mm for t in read_pcb(pcb).tracks), 1),
+        }
+    except Exception as exc:
+        entry["error"] = str(exc)[-800:]
+
+
+def run_manual(
+    name: str, project: Path, plan_path: Path, out: Path, trace: TraceWriter
+) -> dict[str, Any]:
+    """手摆：只取 plan.json 里元件的位置和角度，套到按行排好的板上；其余和 rows、auto 一样。"""
+    cfg = load_config()
+    design = load_design(EXAMPLES / name / "design.json")
+    logs = out / "logs"
+    pcb = copy_project(project, out, name)
+    work = out / "placement"
+    work.mkdir(parents=True, exist_ok=True)
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    base = read_geometry(cfg.tools, pcb, work / "geometry_rows.json", log_dir=logs, trace=trace)
+    result = PlacementResult(
+        positions={ref: (float(x), float(y), int(rot)) for ref, (x, y, rot) in plan.items()},
+        seed=0,
+        restarts=0,
+        iterations=0,
+        method="manual",
+        hpwl_mm=0.0,
+    )
+    placed = pcb.with_name(pcb.stem + "_placed.kicad_pcb")
+    apply_positions(cfg.tools, pcb, placed, result, work_dir=work, log_dir=logs, trace=trace)
+    placed.replace(pcb)
+    for suffix in (".kicad_pro", ".kicad_prl"):
+        placed.with_suffix(suffix).unlink(missing_ok=True)
+    final = read_geometry(cfg.tools, pcb, work / "geometry_manual.json", log_dir=logs, trace=trace)
+    entry: dict[str, Any] = {
+        "hpwl_mm": board_hpwl(design, final, cfg.placement),
+        "hpwl_rows_mm": board_hpwl(design, base, cfg.placement),
+        "placement_violations": check_board(design, final, cfg.placement),
+        "outline_mm": list(final.outline),
+        "edge_connectors": {
+            ref: [final.footprints[ref].x, final.footprints[ref].y, final.footprints[ref].rot]
+            for ref in ("J1", "J2")
+            if ref in final.footprints
+        },
+        "plan_parts": len(plan),
+    }
+    route_and_check(cfg, pcb, out, trace, entry)
     return entry
 
 
@@ -157,6 +224,13 @@ def main(argv: list[str]) -> int:
         (run_dir / "results.json").write_text(
             json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        plan = EXAMPLES / name / "manual" / "plan.json"
+        if plan.exists():
+            entry["manual"] = run_manual(name, emitted.pcb, plan, out / "manual", trace)
+            (run_dir / "results.json").write_text(
+                json.dumps(results | {name: entry}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         flag = "变差：" + "；".join(entry["worse"]) if entry["worse"] else "没有变差"
         print(
             f"{name:20s} HPWL {entry['rows']['hpwl_mm']:8.1f} -> {entry['auto']['hpwl_mm']:8.1f}  "
@@ -167,16 +241,26 @@ def main(argv: list[str]) -> int:
     text = table(results)
     worse = {n: e["worse"] for n, e in results.items() if e["worse"]}
     text += "\n变差的样例：" + (json.dumps(worse, ensure_ascii=False) if worse else "无") + "\n"
-    if LI4S.exists():
+    manual = {n: e["manual"] for n, e in results.items() if "manual" in e}
+    for name, m in manual.items():
+        rows, auto = results[name]["rows"], results[name]["auto"]
         text += (
-            "\nli4s_protect 的 design.json 在仓库里，"
-            "但这个脚本还没写对比它的手工摆放（等你定怎么比）。\n"
+            f"\n{name} 三种摆法（同一个布线器 fastroute）：\n\n"
+            "| 摆法 | HPWL | 未布通网络 | DRC 错误 | DRC 警告 | 走线总长 mm |\n"
+            "|---|---|---|---|---|---|\n"
         )
-    else:
+        for label, e in (("手摆", m), ("auto", auto), ("rows", rows)):
+            text += (
+                f"| {label} | {e['hpwl_mm']:.1f} | {e.get('unrouted_nets', '出错')} "
+                f"| {e.get('drc_errors', '出错')} | {e.get('drc_warnings', '出错')} "
+                f"| {e.get('track_length_mm', '出错')} |\n"
+            )
         text += (
-            "\nli4s_protect：examples/li4s_protect/design.json 不在仓库里，"
-            "跳过（需要你提供，我不自己编）。\n"
+            f"\n手摆板框 {m['outline_mm']}，J1/J2 {m['edge_connectors']}，"
+            f"plan 里 {m['plan_parts']} 个元件，摆放违规：{m['placement_violations'] or '无'}\n"
         )
+    if not LI4S.exists():
+        text += "\nli4s_protect：examples/li4s_protect/design.json 不在仓库里，跳过。\n"
     (run_dir / "table.md").write_text(text, encoding="utf-8")
     print("\n" + text)
     print(run_dir)

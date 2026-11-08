@@ -3,7 +3,7 @@
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = [".tools", "venv", "venv-kicad", "runs", "data"]
+extend-exclude = [".tools", "venv", "venv-kicad", "runs", "data", "examples/li4s_protect/manual"]
 
 [tool.ruff.per-file-target-version]
 # 这些脚本跑在 KiCad 自带的 Python 3.11 里（ADR-0005）。

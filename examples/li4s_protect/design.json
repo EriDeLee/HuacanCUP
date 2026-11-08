@@ -1,0 +1,614 @@
+{
+  "spec_sha256": null,
+  "blocks": [
+    {
+      "id": "input",
+      "purpose": "4 串锂电池输入（最高 16.8 V），TVS 浪涌保护与输入储能电容"
+    },
+    {
+      "id": "power",
+      "purpose": "78L05 从电池取电得到 5 V 逻辑电源，绿灯指示上电"
+    },
+    {
+      "id": "switch",
+      "purpose": "低边功率 MOSFET 与 10 mΩ 采样电阻，栅极下拉保证无逻辑电源时断开"
+    },
+    {
+      "id": "sense",
+      "purpose": "比较器 A：采样电压超过约 50 mV（约 5 A）时拉低 LATCH"
+    },
+    {
+      "id": "latch",
+      "purpose": "比较器 B 接成锁存器：过流后保持断开并亮红灯，按复位键恢复；上电默认断开"
+    }
+  ],
+  "parts": [
+    {
+      "ref": "J1",
+      "block": "input",
+      "value": "BAT_4S",
+      "symbol": "Connector:Screw_Terminal_01x02",
+      "footprint": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal"
+    },
+    {
+      "ref": "J2",
+      "block": "switch",
+      "value": "LOAD",
+      "symbol": "Connector:Screw_Terminal_01x02",
+      "footprint": "TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2_1x02_P5.00mm_Horizontal"
+    },
+    {
+      "ref": "C1",
+      "block": "input",
+      "value": "100uF/35V",
+      "symbol": "Device:C_Polarized",
+      "footprint": "Capacitor_THT:CP_Radial_D8.0mm_P3.50mm",
+      "ratings": {
+        "v_max": 35
+      }
+    },
+    {
+      "ref": "Q1",
+      "block": "switch",
+      "value": "IRLZ44N",
+      "symbol": "Transistor_FET:IRLZ44N",
+      "footprint": "Package_TO_SOT_THT:TO-220-3_Vertical",
+      "ratings": {
+        "vds_max": 55,
+        "id_max": 47
+      }
+    },
+    {
+      "ref": "R1",
+      "block": "switch",
+      "value": "0.01",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_2512_6332Metric"
+    },
+    {
+      "ref": "D1",
+      "block": "input",
+      "value": "SMBJ20CA",
+      "symbol": "Device:D_TVS",
+      "footprint": "Diode_SMD:D_SMB"
+    },
+    {
+      "ref": "SW1",
+      "block": "latch",
+      "value": "RESET",
+      "symbol": "Switch:SW_Push",
+      "footprint": "Button_Switch_THT:SW_PUSH_6mm"
+    },
+    {
+      "ref": "R18",
+      "block": "power",
+      "value": "10",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "U2",
+      "block": "power",
+      "value": "78L05",
+      "symbol": "Regulator_Linear:L78L05_SOT89",
+      "footprint": "Package_TO_SOT_SMD:SOT-89-3"
+    },
+    {
+      "ref": "C4",
+      "block": "power",
+      "value": "1uF",
+      "symbol": "Device:C",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "anchor": "U2"
+    },
+    {
+      "ref": "C5",
+      "block": "power",
+      "value": "1uF",
+      "symbol": "Device:C",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "anchor": "U2"
+    },
+    {
+      "ref": "U1",
+      "block": "sense",
+      "value": "LM393",
+      "symbol": "Comparator:LM393",
+      "footprint": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm"
+    },
+    {
+      "ref": "C3",
+      "block": "sense",
+      "value": "100nF",
+      "symbol": "Device:C",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric",
+      "anchor": "U1"
+    },
+    {
+      "ref": "R2",
+      "block": "sense",
+      "value": "1k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "C2",
+      "block": "sense",
+      "value": "100nF",
+      "symbol": "Device:C",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric"
+    },
+    {
+      "ref": "R4",
+      "block": "sense",
+      "value": "100k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "R5",
+      "block": "sense",
+      "value": "1k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "R10",
+      "block": "latch",
+      "value": "10k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "R11",
+      "block": "latch",
+      "value": "10k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "R12",
+      "block": "latch",
+      "value": "100k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "R13",
+      "block": "latch",
+      "value": "10k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "R14",
+      "block": "latch",
+      "value": "1k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "C6",
+      "block": "latch",
+      "value": "100nF",
+      "symbol": "Device:C",
+      "footprint": "Capacitor_SMD:C_0805_2012Metric"
+    },
+    {
+      "ref": "R6",
+      "block": "switch",
+      "value": "22k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "R17",
+      "block": "switch",
+      "value": "470k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "D2",
+      "block": "power",
+      "value": "GREEN",
+      "symbol": "Device:LED",
+      "footprint": "LED_SMD:LED_0805_2012Metric"
+    },
+    {
+      "ref": "R15",
+      "block": "power",
+      "value": "2.2k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    },
+    {
+      "ref": "D3",
+      "block": "latch",
+      "value": "RED",
+      "symbol": "Device:LED",
+      "footprint": "LED_SMD:LED_0805_2012Metric"
+    },
+    {
+      "ref": "R16",
+      "block": "latch",
+      "value": "2.2k",
+      "symbol": "Device:R",
+      "footprint": "Resistor_SMD:R_0805_2012Metric"
+    }
+  ],
+  "nets": [
+    {
+      "name": "VBAT",
+      "nodes": [
+        [
+          "J1",
+          "1"
+        ],
+        [
+          "J2",
+          "1"
+        ],
+        [
+          "D1",
+          "1"
+        ],
+        [
+          "C1",
+          "1"
+        ],
+        [
+          "R18",
+          "1"
+        ]
+      ],
+      "class": "power",
+      "external_supply": true
+    },
+    {
+      "name": "GND",
+      "nodes": [
+        [
+          "J1",
+          "2"
+        ],
+        [
+          "D1",
+          "2"
+        ],
+        [
+          "C1",
+          "2"
+        ],
+        [
+          "R1",
+          "2"
+        ],
+        [
+          "U2",
+          "2"
+        ],
+        [
+          "C4",
+          "2"
+        ],
+        [
+          "C5",
+          "2"
+        ],
+        [
+          "U1",
+          "4"
+        ],
+        [
+          "C2",
+          "2"
+        ],
+        [
+          "C3",
+          "2"
+        ],
+        [
+          "R5",
+          "2"
+        ],
+        [
+          "R11",
+          "2"
+        ],
+        [
+          "R17",
+          "2"
+        ],
+        [
+          "D2",
+          "1"
+        ],
+        [
+          "C6",
+          "2"
+        ]
+      ],
+      "class": "power",
+      "external_supply": true
+    },
+    {
+      "name": "LOAD_N",
+      "nodes": [
+        [
+          "J2",
+          "2"
+        ],
+        [
+          "Q1",
+          "2"
+        ]
+      ],
+      "class": "power"
+    },
+    {
+      "name": "ISENSE",
+      "nodes": [
+        [
+          "Q1",
+          "3"
+        ],
+        [
+          "R1",
+          "1"
+        ],
+        [
+          "R2",
+          "1"
+        ]
+      ],
+      "class": "power"
+    },
+    {
+      "name": "+5V",
+      "nodes": [
+        [
+          "U2",
+          "1"
+        ],
+        [
+          "C5",
+          "1"
+        ],
+        [
+          "U1",
+          "8"
+        ],
+        [
+          "C3",
+          "1"
+        ],
+        [
+          "R4",
+          "1"
+        ],
+        [
+          "R6",
+          "1"
+        ],
+        [
+          "R10",
+          "1"
+        ],
+        [
+          "R12",
+          "1"
+        ],
+        [
+          "SW1",
+          "1"
+        ],
+        [
+          "R15",
+          "1"
+        ],
+        [
+          "D3",
+          "2"
+        ]
+      ]
+    },
+    {
+      "name": "ISENSE_F",
+      "nodes": [
+        [
+          "R2",
+          "2"
+        ],
+        [
+          "C2",
+          "1"
+        ],
+        [
+          "U1",
+          "2"
+        ]
+      ]
+    },
+    {
+      "name": "VREF",
+      "nodes": [
+        [
+          "R4",
+          "2"
+        ],
+        [
+          "R5",
+          "1"
+        ],
+        [
+          "U1",
+          "3"
+        ]
+      ]
+    },
+    {
+      "name": "LATCH",
+      "nodes": [
+        [
+          "U1",
+          "1"
+        ],
+        [
+          "U1",
+          "5"
+        ],
+        [
+          "R12",
+          "2"
+        ],
+        [
+          "R13",
+          "1"
+        ],
+        [
+          "R14",
+          "2"
+        ],
+        [
+          "C6",
+          "1"
+        ]
+      ]
+    },
+    {
+      "name": "RST",
+      "nodes": [
+        [
+          "SW1",
+          "2"
+        ],
+        [
+          "R14",
+          "1"
+        ]
+      ]
+    },
+    {
+      "name": "VREF2",
+      "nodes": [
+        [
+          "R10",
+          "2"
+        ],
+        [
+          "R11",
+          "1"
+        ],
+        [
+          "U1",
+          "6"
+        ]
+      ]
+    },
+    {
+      "name": "GATE",
+      "nodes": [
+        [
+          "U1",
+          "7"
+        ],
+        [
+          "R6",
+          "2"
+        ],
+        [
+          "R13",
+          "2"
+        ],
+        [
+          "Q1",
+          "1"
+        ],
+        [
+          "R16",
+          "2"
+        ],
+        [
+          "R17",
+          "1"
+        ]
+      ]
+    },
+    {
+      "name": "LED_PWR",
+      "nodes": [
+        [
+          "R15",
+          "2"
+        ],
+        [
+          "D2",
+          "2"
+        ]
+      ]
+    },
+    {
+      "name": "LED_TRIP",
+      "nodes": [
+        [
+          "R16",
+          "1"
+        ],
+        [
+          "D3",
+          "1"
+        ]
+      ]
+    },
+    {
+      "name": "VIN_LDO",
+      "nodes": [
+        [
+          "R18",
+          "2"
+        ],
+        [
+          "U2",
+          "3"
+        ],
+        [
+          "C4",
+          "1"
+        ]
+      ],
+      "external_supply": true
+    }
+  ],
+  "board": {
+    "size_mm": [
+      70.0,
+      44.0
+    ],
+    "layers": 2,
+    "mount_holes": "M3x4",
+    "edge_connectors": [
+      {
+        "ref": "J1",
+        "side": "left"
+      },
+      {
+        "ref": "J2",
+        "side": "right"
+      }
+    ],
+    "net_classes": {
+      "power": {
+        "track_mm": 1.5,
+        "clearance_mm": 0.3
+      }
+    }
+  },
+  "notes": [
+    "演示用手写示例：4 串锂电池组的短路与过流保护板，未经仿真验证",
+    "VREF = 5 V × 1k / 101k ≈ 49.5 mV，对应 10 mΩ 采样电阻上约 5 A；R2/C2 约 100 µs 滤波",
+    "比较器 B 同相端 LATCH 经 R13 接自身输出形成正反馈：过流时 A 拉低 LATCH，B 输出拉低栅极并保持；按 SW1 经 R14 把 LATCH 拉到约 4.5 V 解除锁存",
+    "C6 让 LATCH 上电从 0 V 起，保证上电默认断开；R6 与 R17 分压使栅压约 4.8 V",
+    "R18 10 Ω 给 78L05 输入串联限流，并让稳压器小焊盘不走粗电源线"
+  ]
+}
