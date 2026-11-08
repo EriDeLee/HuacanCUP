@@ -24,7 +24,9 @@ def test_erc_fails_on_error(tmp_path: Path) -> None:
     violation = {"severity": "error", "type": "power_pin_not_driven"}
     gate = erc_gate(_write(tmp_path, {"sheets": [{"violations": [violation]}]}))
     assert not gate.passed
-    assert gate.findings == [violation]
+    assert [(f.id, f.severity, f.status, f.detail) for f in gate.findings] == [
+        ("power_pin_not_driven", "error", "fail", violation)
+    ]
 
 
 def test_drc_passes_with_only_warnings(tmp_path: Path) -> None:

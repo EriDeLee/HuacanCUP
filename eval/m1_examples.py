@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eda_agent.config import REPO_ROOT, load_config  # noqa: E402
 from eda_agent.emit.kicad_project import emit_kicad_project  # noqa: E402
-from eda_agent.gates.kicad_reports import GateReport, drc_gate, erc_gate  # noqa: E402
+from eda_agent.gates.kicad_reports import drc_gate, erc_gate, violation_finding  # noqa: E402
+from eda_agent.gates.report import Finding, GateReport  # noqa: E402
 from eda_agent.gates.schematic_layout import layout_gate  # noqa: E402
 from eda_agent.gates.schematic_quality import layout_quality, netlist_gate  # noqa: E402
 from eda_agent.tools.kicad_cli import KicadCli  # noqa: E402
@@ -52,20 +52,16 @@ def check_example(design_path: Path, out: Path, trace: TraceWriter) -> dict[str,
         drawings.append(("root", emitted.schematic.root, emitted.root))
     for key, drawing, sheet in drawings:
         quality = layout_quality(drawing)
-        gates.append(
-            GateReport(f"schematic_quality:{key}", quality.passed, quality.counts, quality.findings)
-        )
+        gates.append(quality.model_copy(update={"gate": f"schematic_quality:{key}"}))
         if key == "root" and emitted.schematic.root is not None:
             continue  # 根页只有图纸框、没有符号，「符号在图纸内」的检查对它没有意义
         inside = layout_gate(sheet)
-        gates.append(
-            GateReport(f"schematic_layout:{key}", inside.passed, inside.counts, inside.findings)
-        )
+        gates.append(inside.model_copy(update={"gate": f"schematic_layout:{key}"}))
     drc = drc_gate(drc_json)
     parity = _parity_items(drc_json)
     gates.append(
         GateReport(
-            "schematic_parity",
+            gate="schematic_parity",
             passed=not parity,
             counts={"parity_errors": drc.counts.get("parity_errors", 0)},
             findings=parity,
@@ -78,13 +74,23 @@ def check_example(design_path: Path, out: Path, trace: TraceWriter) -> dict[str,
         # 同名标签连成导线：nets 个网络要连，wired 个全连上，partial 个连上一部分，failed 个没连
         "routing": {key: drawing.route_stats for key, drawing, _ in drawings},
         "drc_unrouted": drc.counts,
-        "gates": {g.gate: asdict(g) | {"findings": g.findings[:8]} for g in gates},
+        "gates": {g.gate: _summary(g) for g in gates},
     }
 
 
-def _parity_items(drc_json: Path) -> list[dict[str, Any]]:
+def _summary(gate: GateReport) -> dict[str, Any]:
+    data: dict[str, Any] = gate.model_dump(mode="json")
+    data["findings"] = [f"{f.id}: {f.message}" for f in gate.findings[:8]]
+    return data
+
+
+def _parity_items(drc_json: Path) -> list[Finding]:
     data = json.loads(drc_json.read_text(encoding="utf-8"))
-    return [i for i in data.get("schematic_parity", []) if i.get("severity") == "error"]
+    return [
+        violation_finding(i)
+        for i in data.get("schematic_parity", [])
+        if i.get("severity") == "error"
+    ]
 
 
 def main(names: list[str]) -> int:

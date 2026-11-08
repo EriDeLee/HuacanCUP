@@ -1,0 +1,1158 @@
+{
+  "$defs": {
+    "AcSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "ac",
+          "title": "Kind",
+          "type": "string"
+        },
+        "dc": {
+          "default": 0.0,
+          "description": "直流偏置（V）：放大器要先偏置在线性区，交流小信号才有意义",
+          "title": "Dc",
+          "type": "number"
+        },
+        "magnitude": {
+          "default": 1.0,
+          "description": "交流幅值（V）；小信号分析里只是数值的缩放",
+          "exclusiveMinimum": 0,
+          "title": "Magnitude",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "AcSource",
+      "type": "object"
+    },
+    "AcSweep": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "起始频率，如 10 或 \"10Hz\"",
+          "title": "Start"
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "终止频率，如 \"1MEG\"",
+          "title": "Stop"
+        },
+        "points_per_decade": {
+          "default": 20,
+          "minimum": 1,
+          "title": "Points Per Decade",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "stop"
+      ],
+      "title": "AcSweep",
+      "type": "object"
+    },
+    "Acceptance": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "验收标准编号，如 A1",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "text": {
+          "description": "一句话，说给用户听的",
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "testbench": {
+          "$ref": "#/$defs/Testbench"
+        },
+        "measure": {
+          "$ref": "#/$defs/Measure"
+        },
+        "pass": {
+          "$ref": "#/$defs/Pass"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "testbench",
+        "measure",
+        "pass"
+      ],
+      "title": "Acceptance",
+      "type": "object"
+    },
+    "Constraints": {
+      "additionalProperties": false,
+      "properties": {
+        "board_max_mm": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "板子外形的最大宽、高；可以转 90° 放",
+          "title": "Board Max Mm"
+        },
+        "layers_max": {
+          "anyOf": [
+            {
+              "enum": [
+                2,
+                4
+              ],
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Layers Max"
+        },
+        "assembly": {
+          "anyOf": [
+            {
+              "enum": [
+                "hand_solder",
+                "reflow",
+                "smt_service"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "hand_solder = 手焊，不能用 QFN、DFN、BGA、LGA、WLCSP 这类焊盘在底下的封装；reflow、smt_service 不限制封装类型",
+          "title": "Assembly"
+        },
+        "min_package": {
+          "anyOf": [
+            {
+              "pattern": "^\\d{4}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "贴片阻容的最小英制尺寸，如 \"0805\"；比它小的（0603、0402……）不允许",
+          "title": "Min Package"
+        },
+        "prefer_inventory": {
+          "default": false,
+          "title": "Prefer Inventory",
+          "type": "boolean"
+        },
+        "budget_cny": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Cny"
+        }
+      },
+      "title": "Constraints",
+      "type": "object"
+    },
+    "CurrentDcLoad": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "current_dc",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "description": "负载电流（A）",
+          "title": "Value",
+          "type": "number"
+        },
+        "between": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Between"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "CurrentDcLoad",
+      "type": "object"
+    },
+    "CurrentStepLoad": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "current_step",
+          "title": "Kind",
+          "type": "string"
+        },
+        "from": {
+          "description": "阶跃前的电流（A）",
+          "title": "From",
+          "type": "number"
+        },
+        "to": {
+          "description": "阶跃后的电流（A）",
+          "title": "To",
+          "type": "number"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "阶跃发生的时刻",
+          "title": "At"
+        },
+        "rise": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": "1us",
+          "description": "上升时间",
+          "title": "Rise"
+        },
+        "between": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "[网络甲, 网络乙]：电流从甲经过负载流向乙。不写则 [唯一的 power_out 接口, 地]。负载接在两个电源网络之间（如低边开关的负载接在电池正极和开关漏极之间）时必须写",
+          "title": "Between"
+        }
+      },
+      "required": [
+        "kind",
+        "from",
+        "to",
+        "at"
+      ],
+      "title": "CurrentStepLoad",
+      "type": "object"
+    },
+    "DcSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "dc",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "description": "直流电压（V）",
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "DcSource",
+      "type": "object"
+    },
+    "DcSweep": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "description": "被扫描的接口名（它的电压源）",
+          "title": "Source",
+          "type": "string"
+        },
+        "start": {
+          "title": "Start",
+          "type": "number"
+        },
+        "stop": {
+          "title": "Stop",
+          "type": "number"
+        },
+        "step": {
+          "exclusiveMinimum": 0,
+          "title": "Step",
+          "type": "number"
+        }
+      },
+      "required": [
+        "source",
+        "start",
+        "stop",
+        "step"
+      ],
+      "title": "DcSweep",
+      "type": "object"
+    },
+    "Interface": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "接口名。规则：接口名 = design.json 里的网络名，对不上就在 G1 报错",
+          "pattern": "^[^\\s/]+$",
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "description": "power_in = 板外给电的输入；power_out = 板子给负载供电的输出（或负载接在它上面）；signal_in / signal_out = 信号输入 / 输出；ground = 参考地（不写则按网络名认 GND、AGND……）",
+          "enum": [
+            "power_in",
+            "power_out",
+            "signal_in",
+            "signal_out",
+            "ground"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "v_min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "电压下限（V）",
+          "title": "V Min"
+        },
+        "v_max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "电压上限（V）",
+          "title": "V Max"
+        },
+        "v_nom": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "标称电压（V）。测试台给 power_in 接口接多少伏：写了用它，否则取 v_min 和 v_max 的中点",
+          "title": "V Nom"
+        },
+        "i_max": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "最大电流（A）；G3 用它估计线宽",
+          "title": "I Max"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "kind"
+      ],
+      "title": "Interface",
+      "type": "object"
+    },
+    "Measure": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "value_at = 某时刻（transient）/ 某频率（ac）/ 某扫描值（dc）处的值，op 不写 at；max、min、avg = 窗口里的最大、最小、平均；time_until = 从 after 起算，到条件首次成立的时间间隔（after 缺省为 0，这时就是条件首次成立的时刻）；gain_db_at = 交流增益（dB）在某频率处的值；freq_at_db = 交流增益第一次降到某个 dB 值的频率（-3 dB 点这类）；frequency = 周期信号的频率，取 level 处连续上升沿的间隔",
+          "enum": [
+            "value_at",
+            "max",
+            "min",
+            "avg",
+            "time_until",
+            "gain_db_at",
+            "freq_at_db",
+            "frequency"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "signal": {
+          "description": "被测信号。V(网络或接口名) = 节点电压；V(甲,乙) = 两点之差；I(接口名) = 电流（power_in 接口：从电源流进电路为正；power_out：从电路流进负载为正）；I(位号) = 两脚元件从 1 脚流向 2 脚的电流；I(位号.引脚) = 流进该引脚的电流",
+          "pattern": "^[VI]\\([^()\\s,]+(,[^()\\s,]+)?\\)$",
+          "title": "Signal",
+          "type": "string"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "value_at、gain_db_at：测量点",
+          "title": "At"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "max、min、avg、frequency：窗口起点，缺省从头",
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "窗口终点，缺省到尾",
+          "title": "To"
+        },
+        "condition": {
+          "anyOf": [
+            {
+              "pattern": "^\\s*(<=|>=|<|>)\\s*\\S+\\s*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "time_until：条件，如 \"< 0.1\"、\">= 4.5\"（数值用国际单位制）",
+          "title": "Condition"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "time_until：从这一刻起算",
+          "title": "After"
+        },
+        "ref_signal": {
+          "anyOf": [
+            {
+              "pattern": "^[VI]\\([^()\\s,]+(,[^()\\s,]+)?\\)$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "gain_db_at、freq_at_db：增益的参考（输入）信号；不写则取唯一的 signal_in 接口的电压",
+          "title": "Ref Signal"
+        },
+        "db": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "freq_at_db：目标增益（dB）；有 ref_at 时是相对 ref_at 处增益的差",
+          "title": "Db"
+        },
+        "ref_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "freq_at_db：写了就按\"比 ref_at 处低多少 dB\"算，如 db=-3、ref_at=\"100\"",
+          "title": "Ref At"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "frequency：判上升沿的电平",
+          "title": "Level"
+        },
+        "cycles": {
+          "default": 1,
+          "description": "frequency：测几个周期取平均",
+          "minimum": 1,
+          "title": "Cycles",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "signal"
+      ],
+      "title": "Measure",
+      "type": "object"
+    },
+    "Pass": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "<=",
+            ">=",
+            "<",
+            ">",
+            "between"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "阈值；between 不写",
+          "title": "Value"
+        },
+        "low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "between 的下限",
+          "title": "Low"
+        },
+        "high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "between 的上限",
+          "title": "High"
+        },
+        "unit": {
+          "default": "",
+          "description": "单位，只用于显示，如 s、V、dB、Hz",
+          "title": "Unit",
+          "type": "string"
+        },
+        "scale": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "阈值为 0 时余量的分母（量级）。不写则余量只表示方向：满足 +1、刚好 0、不满足 -1",
+          "title": "Scale"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "Pass",
+      "type": "object"
+    },
+    "PulseSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "pulse",
+          "title": "Kind",
+          "type": "string"
+        },
+        "low": {
+          "description": "低电平（V）",
+          "title": "Low",
+          "type": "number"
+        },
+        "high": {
+          "description": "高电平（V）",
+          "title": "High",
+          "type": "number"
+        },
+        "delay": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": 0.0,
+          "description": "第一个脉冲前的延时",
+          "title": "Delay"
+        },
+        "rise": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": "1us",
+          "title": "Rise"
+        },
+        "fall": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": "1us",
+          "title": "Fall"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "高电平持续时间",
+          "title": "Width"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "周期",
+          "title": "Period"
+        }
+      },
+      "required": [
+        "kind",
+        "low",
+        "high",
+        "width",
+        "period"
+      ],
+      "title": "PulseSource",
+      "type": "object"
+    },
+    "ResistorLoad": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "resistor",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "电阻（Ω），如 10 或 \"4k7\"",
+          "title": "Value"
+        },
+        "between": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Between"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "ResistorLoad",
+      "type": "object"
+    },
+    "SineSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "sine",
+          "title": "Kind",
+          "type": "string"
+        },
+        "offset": {
+          "default": 0.0,
+          "description": "直流偏置（V）",
+          "title": "Offset",
+          "type": "number"
+        },
+        "amplitude": {
+          "description": "幅值（V）",
+          "title": "Amplitude",
+          "type": "number"
+        },
+        "freq": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "频率",
+          "title": "Freq"
+        }
+      },
+      "required": [
+        "kind",
+        "amplitude",
+        "freq"
+      ],
+      "title": "SineSource",
+      "type": "object"
+    },
+    "StepSource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "step",
+          "title": "Kind",
+          "type": "string"
+        },
+        "from": {
+          "description": "阶跃前的电压（V）",
+          "title": "From",
+          "type": "number"
+        },
+        "to": {
+          "description": "阶跃后的电压（V）",
+          "title": "To",
+          "type": "number"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "阶跃发生的时刻",
+          "title": "At"
+        },
+        "rise": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": "1us",
+          "description": "上升时间",
+          "title": "Rise"
+        }
+      },
+      "required": [
+        "kind",
+        "from",
+        "to",
+        "at"
+      ],
+      "title": "StepSource",
+      "type": "object"
+    },
+    "Stimulus": {
+      "additionalProperties": false,
+      "properties": {
+        "drive": {
+          "additionalProperties": {
+            "discriminator": {
+              "mapping": {
+                "ac": "#/$defs/AcSource",
+                "dc": "#/$defs/DcSource",
+                "pulse": "#/$defs/PulseSource",
+                "sine": "#/$defs/SineSource",
+                "step": "#/$defs/StepSource"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/DcSource"
+              },
+              {
+                "$ref": "#/$defs/StepSource"
+              },
+              {
+                "$ref": "#/$defs/PulseSource"
+              },
+              {
+                "$ref": "#/$defs/SineSource"
+              },
+              {
+                "$ref": "#/$defs/AcSource"
+              }
+            ]
+          },
+          "description": "接口名 → 电压源。不写的 power_in 接口按标称电压接直流源；signal_in 接口没写就不驱动（悬空，只靠电路自己的偏置）",
+          "title": "Drive",
+          "type": "object"
+        },
+        "load": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "current_dc": "#/$defs/CurrentDcLoad",
+                  "current_step": "#/$defs/CurrentStepLoad",
+                  "resistor": "#/$defs/ResistorLoad"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/CurrentDcLoad"
+                },
+                {
+                  "$ref": "#/$defs/CurrentStepLoad"
+                },
+                {
+                  "$ref": "#/$defs/ResistorLoad"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "接在输出上的负载。恒流负载两端电压低于约 1 V 时自己退出（像电子负载的欠压保护），不会把节点拉到无穷",
+          "title": "Load"
+        }
+      },
+      "title": "Stimulus",
+      "type": "object"
+    },
+    "Testbench": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "description": "op = 直流工作点；dc = 直流扫描；transient = 瞬态；ac = 交流小信号",
+          "enum": [
+            "op",
+            "dc",
+            "transient",
+            "ac"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "stimulus": {
+          "$ref": "#/$defs/Stimulus"
+        },
+        "sim_time": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "transient 的仿真总时长",
+          "title": "Sim Time"
+        },
+        "max_step": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "transient 的最大步长；不写取 sim_time / 1000",
+          "title": "Max Step"
+        },
+        "sweep": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AcSweep"
+            },
+            {
+              "$ref": "#/$defs/DcSweep"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ac / dc 的扫描范围",
+          "title": "Sweep"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Testbench",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "summary": {
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "interfaces": {
+      "items": {
+        "$ref": "#/$defs/Interface"
+      },
+      "title": "Interfaces",
+      "type": "array"
+    },
+    "acceptance": {
+      "items": {
+        "$ref": "#/$defs/Acceptance"
+      },
+      "title": "Acceptance",
+      "type": "array"
+    },
+    "constraints": {
+      "$ref": "#/$defs/Constraints"
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "untestable": {
+      "description": "写不出可测条件的需求，在 S1 让用户看到",
+      "items": {
+        "type": "string"
+      },
+      "title": "Untestable",
+      "type": "array"
+    },
+    "frozen_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "冻结时的 sha256；冻结前为 null",
+      "title": "Frozen Sha256"
+    }
+  },
+  "required": [
+    "id",
+    "summary"
+  ],
+  "title": "Spec",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec.schema.json"
+}

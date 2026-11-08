@@ -1,0 +1,270 @@
+{
+  "$defs": {
+    "Attempt": {
+      "additionalProperties": false,
+      "description": "G2 的一次仿真尝试（收敛重试要按顺序记下每一次，PLAN §7 G2）。",
+      "properties": {
+        "name": {
+          "description": "default = 默认设置；relaxed = 放宽 gmin / reltol；gear = method=gear；short_step = 缩短步长并加 uic（瞬态），或加大迭代次数（其他分析）",
+          "enum": [
+            "default",
+            "relaxed",
+            "gear",
+            "short_step"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "options": {
+          "description": "这一次附加的 .options / 设置",
+          "items": {
+            "type": "string"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "outcome": {
+          "enum": [
+            "ok",
+            "error",
+            "timeout"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "error": {
+          "default": "",
+          "title": "Error",
+          "type": "string"
+        },
+        "netlist": {
+          "default": "",
+          "description": "这一次的网表，相对运行目录",
+          "title": "Netlist",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "outcome"
+      ],
+      "title": "Attempt",
+      "type": "object"
+    },
+    "DeviceStress": {
+      "additionalProperties": false,
+      "description": "G2 的额外测量：一个器件在所有仿真里的峰值，给 G1 额定值检查的第二轮用。",
+      "properties": {
+        "v_peak": {
+          "description": "V，各引脚所在网络对地电压的最大绝对值",
+          "title": "V Peak",
+          "type": "number"
+        },
+        "i_peak": {
+          "description": "A，各引脚电流的最大绝对值",
+          "title": "I Peak",
+          "type": "number"
+        },
+        "p_peak": {
+          "description": "W，各引脚电压乘电流之和的最大值（瞬时功耗）",
+          "title": "P Peak",
+          "type": "number"
+        }
+      },
+      "required": [
+        "v_peak",
+        "i_peak",
+        "p_peak"
+      ],
+      "title": "DeviceStress",
+      "type": "object"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "G2：验收标准编号（A1…）；G1、G3：规则或检查项名",
+          "title": "Id",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "status": {
+          "description": "pass = 通过；fail = 不满足；sim_error = 没能得出结果（不收敛、超时、模型缺失），不算通过，和 fail 分开统计",
+          "enum": [
+            "pass",
+            "fail",
+            "sim_error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "measured": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Measured"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "阈值；between 时是下限",
+          "title": "Threshold"
+        },
+        "threshold_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "between 的上限",
+          "title": "Threshold High"
+        },
+        "op": {
+          "anyOf": [
+            {
+              "enum": [
+                "<=",
+                ">=",
+                "<",
+                ">",
+                "between"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Op"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        },
+        "margin": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "有符号的相对余量，正数有余量、负数超标；定义见模块说明",
+          "title": "Margin"
+        },
+        "artifacts": {
+          "description": "相关文件，相对运行目录，如 sim/A1.cir、sim/plots/A1.png",
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "attempts": {
+          "description": "G2：每次仿真尝试",
+          "items": {
+            "$ref": "#/$defs/Attempt"
+          },
+          "title": "Attempts",
+          "type": "array"
+        },
+        "detail": {
+          "additionalProperties": true,
+          "description": "工具给的原始条目（KiCad 的违规项等），供回放和诊断用",
+          "title": "Detail",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "severity",
+        "status",
+        "message"
+      ],
+      "title": "Finding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "gate": {
+      "title": "Gate",
+      "type": "string"
+    },
+    "passed": {
+      "title": "Passed",
+      "type": "boolean"
+    },
+    "counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Counts",
+      "type": "object"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "device_stress": {
+      "additionalProperties": {
+        "$ref": "#/$defs/DeviceStress"
+      },
+      "description": "G2：位号 → 峰值电压、电流、功耗",
+      "title": "Device Stress",
+      "type": "object"
+    },
+    "net_current_peak": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "description": "G2：网络名 → 流过它的电流上界（A）：各引脚电流绝对值之和的一半，取时间上的最大值",
+      "title": "Net Current Peak",
+      "type": "object"
+    }
+  },
+  "required": [
+    "gate",
+    "passed"
+  ],
+  "title": "GateReport",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gate_report.schema.json"
+}

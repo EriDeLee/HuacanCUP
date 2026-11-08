@@ -3,12 +3,16 @@
     runs/<run_id>/
       request.md                      用户原话
       spec.json / spec.md             冻结的需求规格（M2 起）
+      branches/<k>/sim/               这一路的测试台 .cir、.raw、plots/（ADR-0016，单路只有 0）
       iterations/NN/design.json       每次设计改动后的快照，NN 从 00 开始
       iterations/NN/gates/<gate>.json 这一版设计的检查报告
       iterations/NN/notes.md          这一版是谁、为什么改的
-      sim/  kicad/  final/            仿真、KiCad 工程、交付物
+      kicad/  final/                  KiCad 工程、交付物
       trace.jsonl                     事件流（schemas/trace.schema.json）
       state.json                      当前状态、回退计数、费用累计
+
+M2 只把 G2 用到的 sim/ 搬进了 branches/<k>/；iterations/ 和 kicad/ 还在运行目录根部，
+M3 开头一起搬到 branches/<k>/ 下（见 ADR-0016「后果」）。
 
 设计只能通过 apply_patch（JSON Patch，PLAN §5.2）或 snapshot 改动，每次改动都留快照，随时可以回滚。
 这里只负责把东西存好、记进事件流；「通过不通过」只由 eda_agent/gates/ 的代码给出
@@ -19,14 +23,13 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from eda_agent.gates.kicad_reports import GateReport
+from eda_agent.gates.report import GateReport
 from eda_agent.ir.models import Design
 from eda_agent.ir.patch import PatchResult, apply_design_patch, design_document
 from eda_agent.trace import TraceWriter
@@ -74,8 +77,9 @@ class RunDir:
             n += 1
         path.mkdir(parents=True)
         run = cls(path)
-        for sub in ("iterations", "sim", "kicad", "final"):
+        for sub in ("iterations", "kicad", "final"):
             (path / sub).mkdir()
+        run.sim_dir_of(0).mkdir(parents=True)
         _write_atomic(path / "request.md", request.rstrip("\n") + "\n")
         run.save_state(RunState(run_id=run.run_id))
         return run
@@ -91,9 +95,17 @@ class RunDir:
     def kicad_dir(self) -> Path:
         return self.path / "kicad"
 
+    def branch_dir(self, k: int = 0) -> Path:
+        return self.path / "branches" / str(k)
+
+    def sim_dir_of(self, k: int = 0) -> Path:
+        """第 k 路的仿真目录 branches/<k>/sim（测试台 .cir、.raw、plots/）。"""
+        return self.branch_dir(k) / "sim"
+
     @property
     def sim_dir(self) -> Path:
-        return self.path / "sim"
+        """单路运行的仿真目录，也就是 branches/0/sim。"""
+        return self.sim_dir_of(0)
 
     @property
     def final_dir(self) -> Path:
@@ -158,7 +170,7 @@ class RunDir:
         folder = self.iteration_dir(n) / "gates"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{report.gate}.json"
-        _write_atomic(path, _dump(asdict(report)))
+        _write_atomic(path, _dump(report.model_dump(mode="json")))
         self.trace.emit(
             "gate",
             gate=report.gate,

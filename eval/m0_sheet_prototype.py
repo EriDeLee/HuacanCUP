@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -113,7 +112,11 @@ def main(names: list[str]) -> int:
         results[name] = {
             "paper": drawing.paper,
             "passed": all(g.passed for g in gates),
-            "gates": {g.gate: asdict(g) | {"findings": g.findings[:6]} for g in gates},
+            "gates": {
+                g.gate: g.model_dump(mode="json")
+                | {"findings": [f.message for f in g.findings[:6]]}
+                for g in gates
+            },
         }
     (run_dir / "results.json").write_text(
         json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"

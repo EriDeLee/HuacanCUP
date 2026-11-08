@@ -13,11 +13,15 @@ from collections.abc import Callable
 from pathlib import Path
 
 from eda_agent.config import REPO_ROOT
+from eda_agent.gates.report import report_json_schema
 from eda_agent.ir.models import design_json_schema
+from eda_agent.ir.spec import spec_json_schema
 
 SCHEMA_DIR = REPO_ROOT / "schemas"
 GENERATED: dict[str, Callable[[], dict[str, object]]] = {
     "design.schema.json": design_json_schema,
+    "spec.schema.json": spec_json_schema,
+    "gate_report.schema.json": report_json_schema,
 }
 
 

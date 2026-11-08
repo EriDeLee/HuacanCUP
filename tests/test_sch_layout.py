@@ -27,7 +27,13 @@ from eda_agent.emit.sch_layout import (
     text_box,
     text_width,
 )
+from eda_agent.gates.report import GateReport
 from eda_agent.gates.schematic_quality import layout_quality, netlist_gate
+
+
+def _kinds(report: GateReport) -> list[tuple[str, object]]:
+    """(finding 的 id, detail 里的 items)：用来判断某种问题出现在了哪些东西上。"""
+    return [(f.id, f.detail.get("items")) for f in report.findings]
 
 
 def test_rotate_follows_the_kicad_convention() -> None:
@@ -143,14 +149,14 @@ def test_quality_gate_fails_for_overlapping_parts() -> None:
     prims = Prims(symbols=[_sym("R1", (0, 0, 5, 5)), _sym("R2", (3, 3, 8, 8))])
     report = layout_quality(_drawing(prims))
     assert not report.passed
-    assert report.findings[0]["type"] == "symbol_overlap"
+    assert report.findings[0].id == "symbol_overlap"
 
 
 def test_quality_gate_fails_when_a_wire_passes_through_a_body() -> None:
     prims = Prims(symbols=[_sym("U1", (0, 0, 10, 10))], wires=[Wire((-5.0, 5.0), (15.0, 5.0))])
     report = layout_quality(_drawing(prims))
     assert not report.passed
-    assert report.findings[0]["type"] == "wire_through_symbol"
+    assert report.findings[0].id == "wire_through_symbol"
 
 
 def test_a_lead_leaving_a_pin_outward_is_fine_but_one_entering_the_body_is_not() -> None:
@@ -174,7 +180,7 @@ def test_quality_gate_fails_when_a_wire_runs_through_text() -> None:
     prims = Prims(symbols=[u1], wires=[Wire((8.0, -5.0), (8.0, 1.0))])
     report = layout_quality(_drawing(prims))
     assert not report.passed
-    assert {"type": "wire_through_text", "items": ["U1"]} in report.findings
+    assert ("wire_through_text", ["U1"]) in _kinds(report)
 
 
 def test_a_wire_ending_at_its_own_label_or_under_a_note_edge_is_fine() -> None:
@@ -196,7 +202,7 @@ def test_quality_gate_fails_when_a_wire_runs_through_a_sheet_name() -> None:
     prims = Prims(extra_texts=[("sensor", (10.0, -2.0, 16.0, -0.6))])
     prims.wires.append(Wire((12.0, -5.0), (12.0, 0.0)))
     report = layout_quality(_drawing(prims))
-    assert {"type": "wire_through_text", "items": ["sensor"]} in report.findings
+    assert ("wire_through_text", ["sensor"]) in _kinds(report)
 
 
 def test_quality_gate_fails_when_an_arrow_head_covers_a_sheet_name() -> None:
@@ -204,7 +210,7 @@ def test_quality_gate_fails_when_an_arrow_head_covers_a_sheet_name() -> None:
     prims = Prims(extra_texts=[("sensor", (10.0, -2.0, 16.0, -0.6))])
     prims.lines.append(Line(((11.43, -10.0), (11.43, -2.54), (11.43, -0.3)), True))
     report = layout_quality(_drawing(prims))
-    assert {"type": "line_through_text", "items": ["sensor"]} in report.findings
+    assert ("line_through_text", ["sensor"]) in _kinds(report)
 
 
 def test_an_arrow_beside_text_is_fine() -> None:
@@ -260,18 +266,18 @@ def test_netlist_gate_fails_on_a_split_net(tmp_path: Path) -> None:
     )
     report = netlist_gate(EXPECTED, exported)
     assert not report.passed
-    assert report.findings[0]["type"] == "net_split"
+    assert report.findings[0].id == "net_split"
 
 
 def test_netlist_gate_fails_on_a_short(tmp_path: Path) -> None:
     exported = _netlist(tmp_path, {"/A": [("R1", "1"), ("R2", "1"), ("R1", "2"), ("R2", "2")]})
     report = netlist_gate(EXPECTED, exported)
     assert not report.passed
-    assert {f["type"] for f in report.findings} == {"short"}
+    assert {f.id for f in report.findings} == {"short"}
 
 
 def test_netlist_gate_fails_on_a_missing_pin(tmp_path: Path) -> None:
     exported = _netlist(tmp_path, {"/A": [("R1", "1")], "/B": [("R1", "2"), ("R2", "2")]})
     report = netlist_gate(EXPECTED, exported)
     assert not report.passed
-    assert report.findings[0]["type"] == "pin_missing"
+    assert report.findings[0].id == "pin_missing"

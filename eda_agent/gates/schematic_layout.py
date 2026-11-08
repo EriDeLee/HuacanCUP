@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from eda_agent.gates.kicad_reports import GateReport
+from eda_agent.gates.report import Finding, GateReport, error_finding, make_report
 
 # KiCad 图纸尺寸（mm，横向）。
 PAPER_MM = {
@@ -28,32 +28,33 @@ def layout_gate(sch: Path) -> GateReport:
     text = sch.read_text(encoding="utf-8")
     paper = _PAPER.search(text)
     if paper is None or paper.group(1) not in PAPER_MM:
-        return GateReport(
-            gate="schematic_layout",
-            passed=False,
-            counts={"symbols": 0, "outside": 0},
-            findings=[{"message": f"不认识的图纸尺寸：{paper.group(1) if paper else '无'}"}],
+        return make_report(
+            "schematic_layout",
+            [
+                error_finding(
+                    "paper_unknown", f"不认识的图纸尺寸：{paper.group(1) if paper else '无'}"
+                )
+            ],
+            {"symbols": 0, "outside": 0},
         )
     width, height = PAPER_MM[paper.group(1)]
     if paper.group(2):
         width, height = height, width
-    findings = []
+    findings: list[Finding] = []
     symbols = list(_SYMBOL_AT.finditer(text))
+    if not symbols:
+        findings.append(error_finding("no_symbols", "原理图里一个符号都没有"))
     for m in symbols:
         x, y = float(m.group(2)), float(m.group(3))
         if not (0 <= x <= width and 0 <= y <= height):
             ref = _REF.search(text, m.end())
+            name = ref.group(1) if ref else "?"
             findings.append(
-                {
-                    "ref": ref.group(1) if ref else "?",
-                    "lib_id": m.group(1),
-                    "at_mm": [x, y],
-                    "message": f"在 {paper.group(1)} 图纸（{width:.0f}×{height:.0f} mm）外面",
-                }
+                error_finding(
+                    "symbol_outside",
+                    f"{name} 在 {paper.group(1)} 图纸（{width:.0f}×{height:.0f} mm）外面",
+                    detail={"ref": name, "lib_id": m.group(1), "at_mm": [x, y]},
+                )
             )
-    return GateReport(
-        gate="schematic_layout",
-        passed=bool(symbols) and not findings,
-        counts={"symbols": len(symbols), "outside": len(findings)},
-        findings=findings,
-    )
+    outside = sum(1 for f in findings if f.id == "symbol_outside")
+    return make_report("schematic_layout", findings, {"symbols": len(symbols), "outside": outside})

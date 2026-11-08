@@ -216,6 +216,7 @@ S11 bringup      （板子回来后）生成上电步骤 + 每步期望读数（
 要点：
 - 验收标准必须是**仿真能测的数值条件**。需求智能体如果写不出可测条件，就把它放进 `assumptions` 或 `untestable`，在 S1 让用户看到。
 - 冻结后任何智能体不得修改 spec；若确实需要改，必须回到 S1 让用户重新确认。
+- 实现：`eda_agent/ir/spec.py`；完整字段见 `schemas/spec.schema.json`（由模型导出，M2）。接口名对应 design 里的同名网络（review-queue D13）。
 
 ### 5.2 `design.json`（电路 IR，系统唯一的设计源）
 ```json
@@ -248,13 +249,50 @@ S11 bringup      （板子回来后）生成上电步骤 + 每步期望读数（
 - `ratings` 字段来自数据手册检索结果，并记录出处（`ratings_source: {doc_id, page}`），供规则检查使用。
 
 ### 5.3 `GateReport`
+G1、G2、G3 共用同一个报告格式。模型在 `eda_agent/gates/report.py`，JSON Schema 是 `schemas/gate_report.schema.json`（由模型导出，M2 定）。
 ```json
 {"gate": "sim", "passed": false,
- "findings": [{"id": "A1", "severity": "error", "measured": 0.0042, "threshold": 0.001,
-               "message": "切断时间 4.2ms 超过 1ms", "artifacts": ["plots/A1.png", "raw/A1.raw"]}]}
+ "counts": {"pass": 1, "fail": 1, "sim_error": 0, "total": 2},
+ "findings": [
+   {"id": "A1", "severity": "error", "status": "fail",
+    "measured": 0.0042, "threshold": 0.001, "op": "<=", "unit": "s", "margin": -3.2,
+    "message": "切断时间 4.2ms 超过 1ms",
+    "artifacts": ["branches/0/sim/A1.cir", "branches/0/sim/plots/A1.png", "branches/0/sim/A1.raw"],
+    "attempts": [{"name": "default", "options": [], "outcome": "ok", "error": "", "netlist": "branches/0/sim/A1.cir"}]},
+   {"id": "A2", "severity": "info", "status": "pass", "measured": 5.02, "threshold": 4.5,
+    "threshold_high": 5.5, "op": "between", "unit": "V", "margin": 0.092, "message": "…", "artifacts": [], "attempts": []}],
+ "device_stress": {"Q1": {"v_peak": 12.1, "i_peak": 10.0, "p_peak": 3.2}},
+ "net_current_peak": {"VBAT": 10.0}}
 ```
 
-G2 的报告对每条验收标准都记实测值、阈值和余量，通过的也记，不只记失败项：汇合选优要按余量排名（ADR-0016）。字段在 M2 定。
+每条 finding 都有这些字段：
+
+| 字段 | 含义 |
+|---|---|
+| `id` | G2：验收标准编号（A1…）；G1、G3：规则或检查项名；ERC / DRC 是 KiCad 的违规类型 |
+| `severity` | `error` / `warning` / `info`。报告的 `passed` 就是「没有 error」，只由 `gates/` 的代码写出 |
+| `status` | `pass` / `fail` / `sim_error`。`sim_error` 是没得出结果（不收敛、超时、模型缺失），不算通过，和 `fail` 分开统计 |
+| `measured`、`threshold`、`threshold_high`、`op`、`unit` | 实测值、阈值（`between` 时 `threshold` 是下限、`threshold_high` 是上限）、比较符号、单位 |
+| `margin` | 有符号的相对余量，定义见下 |
+| `message` | 一句话说明，给人和诊断智能体看 |
+| `artifacts` | 相关文件，相对运行目录（网表、波形图、`.raw`） |
+| `attempts` | G2：每次仿真尝试（默认设置 → 放宽 gmin / reltol → `method=gear` → 缩短步长加 `uic`）及结果 |
+| `detail` | 工具给的原始条目（KiCad 违规项等） |
+
+G2 的报告对每条验收标准都写一条 finding，通过的也写（severity 是 `info`），不只记失败项：汇合选优要按余量排名（ADR-0016）。
+`device_stress` 是每个器件在全部仿真里的峰值电压、电流、功耗（G1 额定值检查第二轮用）；`net_current_peak` 是每个网络的电流上界（G3 线宽检查用）。
+
+**余量（margin）**：有符号的相对余量，正数表示有余量，负数表示超标。
+
+| 判定 | 余量 |
+|---|---|
+| `<=`、`<` | `(threshold - measured) / abs(threshold)` |
+| `>=`、`>` | `(measured - threshold) / abs(threshold)` |
+| `between` | 下端按 `>=`、上端按 `<=` 各算一个，取较小的那个（离失败更近的一端） |
+| `threshold` 为 0 | 没有量级可除。`pass.scale` 写了就拿它当分母；没写，余量只表示方向：满足 +1、刚好等于阈值 0、不满足 −1 |
+
+`status` 由比较结果决定，不由余量的符号决定：严格不等式（`<`、`>`）刚好等于阈值时余量是 0，但判不通过。
+把各项余量合成一个总分是汇合选优的事（§16），M2 只记录每一项。
 
 ### 5.4 运行目录
 ```

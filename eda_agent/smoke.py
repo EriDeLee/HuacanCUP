@@ -22,7 +22,6 @@ import time
 import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -31,7 +30,8 @@ from eda_agent.config import REPO_ROOT, load_config
 from eda_agent.emit.kicad_project import emit_schematic, write_net_classes
 from eda_agent.emit.sch_layout import NetSpec
 from eda_agent.emit.sch_project import SchematicProject
-from eda_agent.gates.kicad_reports import GateReport, drc_gate, erc_gate
+from eda_agent.gates.kicad_reports import drc_gate, erc_gate
+from eda_agent.gates.report import GateReport
 from eda_agent.gates.schematic_layout import layout_gate
 from eda_agent.gates.schematic_quality import layout_quality, netlist_gate
 from eda_agent.ir.models import load_design
@@ -83,7 +83,8 @@ class Smoke:
     def _record(self, key: str, report: GateReport) -> GateReport:
         self.gates[key] = report
         (self.gates_dir / f"{key}.gate.json").write_text(
-            json.dumps(asdict(report), ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps(report.model_dump(mode="json"), ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
         return report
 
@@ -159,7 +160,10 @@ class Smoke:
                     counts[key] = counts.get(key, 0) + value
             findings = [f for r in reports for f in r.findings]
             gate = self._record(
-                "schematic_layout", GateReport("schematic_layout", passed, counts, findings)
+                "schematic_layout",
+                GateReport(
+                    gate="schematic_layout", passed=passed, counts=counts, findings=findings
+                ),
             )
             detail.update(passed=gate.passed, **gate.counts)
         return gate
@@ -322,7 +326,8 @@ class Smoke:
             summary["passed"] = False
             summary["error"] = str(exc)[-2000:]
         summary["gates"] = {
-            k: asdict(v) | {"findings": len(v.findings)} for k, v in self.gates.items()
+            k: v.model_dump(mode="json") | {"findings": len(v.findings)}
+            for k, v in self.gates.items()
         }
         summary["primary_router"] = primary
         summary["schematic"] = self.schematic_mode

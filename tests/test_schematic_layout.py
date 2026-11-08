@@ -23,7 +23,7 @@ def test_symbols_on_page_pass(tmp_path: Path) -> None:
 def test_symbol_far_off_page_fails(tmp_path: Path) -> None:
     gate = layout_gate(_sch(tmp_path, "A0", ("R1", 500.0, 400.0), ("R7", 600.0, -2710.2)))
     assert not gate.passed
-    assert [f["ref"] for f in gate.findings] == ["R7"]
+    assert [f.detail["ref"] for f in gate.findings] == ["R7"]
 
 
 def test_portrait_page_swaps_width_and_height(tmp_path: Path) -> None:

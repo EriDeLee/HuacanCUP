@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from eda_agent.emit.sch_layout import Box, Drawing, NetSpec, Point, SymbolInst
-from eda_agent.gates.kicad_reports import GateReport
+from eda_agent.gates.report import Finding, GateReport, error_finding, make_report
 from eda_agent.kicad_side import sexpr
 
 
@@ -61,14 +61,22 @@ def _count_crossings(drawing: Drawing) -> int:
     return crossings
 
 
+def _finding(kind: str, message: str, **detail: object) -> Finding:
+    return error_finding(kind, message, detail=detail)
+
+
 def layout_quality(drawing: Drawing) -> GateReport:
     p = drawing.prims
     parts = [s for s in p.symbols if not s.power]
-    findings: list[dict[str, object]] = []
+    findings: list[Finding] = []
     for i, a in enumerate(parts):
         for b in parts[i + 1 :]:
             if _overlap(a.box, b.box, 0.1):
-                findings.append({"type": "symbol_overlap", "items": [a.ref, b.ref]})
+                findings.append(
+                    _finding(
+                        "symbol_overlap", f"符号 {a.ref} 和 {b.ref} 重叠", items=[a.ref, b.ref]
+                    )
+                )
     texts = [(s.ref, tb) for s in p.symbols for tb in s.text_boxes()]
     texts += [(lb.text, lb.box) for lb in p.labels]
     texts += [(n.text, n.box) for n in p.notes]
@@ -76,25 +84,36 @@ def layout_quality(drawing: Drawing) -> GateReport:
     for name, tb in texts:
         for s in parts:
             if s.ref != name and _overlap(tb, s.box, 0.15):
-                findings.append({"type": "text_over_symbol", "items": [name, s.ref]})
+                findings.append(
+                    _finding(
+                        "text_over_symbol", f"文字 {name} 压在符号 {s.ref} 上", items=[name, s.ref]
+                    )
+                )
     for i, (n1, t1) in enumerate(texts):
         for n2, t2 in texts[i + 1 :]:
             if _overlap(t1, t2, 0.15):
-                findings.append({"type": "text_overlap", "items": [n1, n2]})
+                findings.append(_finding("text_overlap", f"文字 {n1} 和 {n2} 重叠", items=[n1, n2]))
     for w in p.wires:
         wb = (min(w.a[0], w.b[0]), min(w.a[1], w.b[1]), max(w.a[0], w.b[0]), max(w.a[1], w.b[1]))
         for s in p.symbols:
             if s.core and _overlap(wb, s.core, 0.2) and not _leaves_a_pin(w.a, w.b, s):
-                findings.append({"type": "wire_through_symbol", "items": [s.ref]})
+                findings.append(
+                    _finding("wire_through_symbol", f"导线穿过符号 {s.ref}", items=[s.ref])
+                )
         # 线从文字上穿过（ADR-0014，用户 2026-11-01 指出 ldo_3v3 的 +3V3 线穿过 U1 的型号）。
         # 标签的锚点就在线头上，线只碰到它的边，不算穿过。
         for name, tb in texts:
             if _overlap(wb, tb, 0.15):
-                findings.append({"type": "wire_through_text", "items": [name]})
+                findings.append(
+                    _finding("wire_through_text", f"导线从文字 {name} 上穿过", items=[name])
+                )
     # 根页的电源流向虚线箭头（连同箭头的三角）也不许压字：曾经盖住过图纸框的框名
     for ln in p.lines:
         hit = {name for lb in ln.boxes() for name, tb in texts if _overlap(lb, tb, 0.15)}
-        findings += [{"type": "line_through_text", "items": [name]} for name in sorted(hit)]
+        findings += [
+            _finding("line_through_text", f"虚线箭头从文字 {name} 上穿过", items=[name])
+            for name in sorted(hit)
+        ]
     counts = {
         "parts": len(parts),
         "wires": len(p.wires),
@@ -102,9 +121,7 @@ def layout_quality(drawing: Drawing) -> GateReport:
         "wire_crossings": _count_crossings(drawing),
         "failures": len(findings),
     }
-    return GateReport(
-        gate="schematic_quality", passed=not findings, counts=counts, findings=findings
-    )
+    return make_report("schematic_quality", findings, counts)
 
 
 def exported_nets(netlist: Path) -> dict[tuple[str, str], str]:
@@ -120,19 +137,38 @@ def exported_nets(netlist: Path) -> dict[tuple[str, str], str]:
 
 def netlist_gate(nets: list[NetSpec], netlist: Path) -> GateReport:
     actual = exported_nets(netlist)
-    findings: list[dict[str, object]] = []
+    findings: list[Finding] = []
     owner: dict[str, str] = {}
     for net in nets:
         missing = sorted(f"{r}.{p}" for r, p in net.pins if (r, p) not in actual)
         if missing:
-            findings.append({"type": "pin_missing", "net": net.name, "pins": missing})
+            findings.append(
+                _finding(
+                    "pin_missing",
+                    f"网络 {net.name} 的引脚 {missing} 在 KiCad 读出的网表里没有",
+                    net=net.name,
+                    pins=missing,
+                )
+            )
         names = {actual[pin] for pin in net.pins if pin in actual}
         if len(names) > 1:
-            findings.append({"type": "net_split", "net": net.name, "into": sorted(names)})
+            findings.append(
+                _finding(
+                    "net_split",
+                    f"网络 {net.name} 在网表里被拆成 {sorted(names)}",
+                    net=net.name,
+                    into=sorted(names),
+                )
+            )
         for name in names:
             if owner.setdefault(name, net.name) != net.name:
-                findings.append({"type": "short", "nets": [owner[name], net.name], "in": name})
+                findings.append(
+                    _finding(
+                        "short",
+                        f"网络 {owner[name]} 和 {net.name} 在网表里被短接（{name}）",
+                        nets=[owner[name], net.name],
+                        **{"in": name},
+                    )
+                )
     counts = {"nets": len(nets), "failures": len(findings)}
-    return GateReport(
-        gate="netlist_equivalence", passed=not findings, counts=counts, findings=findings
-    )
+    return make_report("netlist_equivalence", findings, counts)

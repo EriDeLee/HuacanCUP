@@ -25,7 +25,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eda_agent.config import REPO_ROOT, ToolsConfig, load_config  # noqa: E402
-from eda_agent.gates.kicad_reports import GateReport, drc_gate  # noqa: E402
+from eda_agent.gates.kicad_reports import drc_gate  # noqa: E402
+from eda_agent.gates.report import GateReport  # noqa: E402
 from eda_agent.tools.kicad_cli import KicadCli  # noqa: E402
 from eda_agent.tools.kicad_python import run_kicad_script  # noqa: E402
 from eda_agent.tools.routers import fastroute_route, krt_route, tracemaker_route  # noqa: E402
@@ -48,7 +49,7 @@ def board_counts(pcb: Path) -> dict[str, int]:
 
 
 def error_types(gate: GateReport) -> dict[str, int]:
-    return dict(collections.Counter(f.get("type", "?") for f in gate.findings))
+    return dict(collections.Counter(f.id for f in gate.findings))
 
 
 def _router_summary(path: Path) -> dict[str, Any]:

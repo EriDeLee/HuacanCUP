@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from eda_agent.config import REPO_ROOT
 from eda_agent.ir.models import Design, load_design
-from eda_agent.schemas import SCHEMA_DIR, render
+from eda_agent.schemas import GENERATED, SCHEMA_DIR, render
 
 
 def _led(led_design_path: Path) -> dict[str, Any]:
@@ -116,11 +116,14 @@ def test_bad_references_and_values_are_rejected(
         Design.model_validate(data)
 
 
-def test_committed_design_schema_matches_the_model() -> None:
-    """改了 ir/models.py 后要运行 python tasks.py schemas。"""
-    assert (SCHEMA_DIR / "design.schema.json").read_text(encoding="utf-8") == render(
-        "design.schema.json"
-    )
+@pytest.mark.parametrize("name", sorted(GENERATED))
+def test_committed_schemas_match_their_models(name: str) -> None:
+    """改了 ir/models.py、ir/spec.py 或 gates/report.py 后要运行 python tasks.py schemas。"""
+    assert (SCHEMA_DIR / name).read_text(encoding="utf-8") == render(name)
+
+
+def test_the_expected_schemas_are_exported() -> None:
+    assert set(GENERATED) == {"design.schema.json", "spec.schema.json", "gate_report.schema.json"}
 
 
 def test_the_examples_satisfy_the_json_schema() -> None:

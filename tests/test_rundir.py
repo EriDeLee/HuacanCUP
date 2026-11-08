@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from eda_agent.gates.kicad_reports import GateReport
+from eda_agent.gates.report import GateReport
 from eda_agent.ir.models import load_design
 from eda_agent.orchestrator.rundir import RunDir
 from eda_agent.trace import read_trace
@@ -24,8 +24,10 @@ def _run(tmp_path: Path) -> RunDir:
 def test_create_lays_out_the_plan_5_4_directories(tmp_path: Path) -> None:
     run = _run(tmp_path)
     assert run.run_id == "demo-20261101-080000"
-    for sub in ("iterations", "sim", "kicad", "final"):
+    for sub in ("iterations", "kicad", "final", "branches/0/sim"):
         assert (run.path / sub).is_dir()
+    assert run.sim_dir == run.path / "branches" / "0" / "sim"
+    assert run.sim_dir_of(2) == run.path / "branches" / "2" / "sim"
     assert (run.path / "request.md").read_text(encoding="utf-8").startswith("在电池")
     assert run.state().iteration == -1
     assert run.latest_design() is None
