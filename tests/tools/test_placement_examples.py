@@ -3,8 +3,9 @@
 需要 KiCad（pcbnew 读几何、写位置，kicad-cli 跑 DRC）。
 检查用的是摆好以后用 pcbnew 重新读出来的位置，不是算法自己的账；
 另外 KiCad 自己的 DRC 也不许报 courtyard 重叠等违规（未布线，所以「没连上」不算）。
-为了省时间，这里每个元件只退火 500 步（默认 1500）；
-完整参数下 rows / auto 的对比表见 eval/m2_placement.py。
+为了省时间，测试里只摆一个种子；参数就是默认的（每个元件退火 1500 步），
+位号文字的框算进占位以后 500 步不够把 ldo_3v3 摆得比按行排短。
+完整的 rows / auto 对比表见 eval/m2_placement.py。
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from eda_agent.trace import TraceWriter, read_trace
 pytestmark = pytest.mark.tools
 
 EXAMPLES = sorted((REPO_ROOT / "examples").glob("*/design.json"))
-FAST = PlacementConfig(iterations_per_part=500)
+FAST = PlacementConfig(iterations_per_part=1500)
 
 
 def emit(path: Path, out: Path) -> EmittedProject:

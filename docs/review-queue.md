@@ -57,18 +57,12 @@
 - 文中的实验数字（如完成时间 p95 15.7 分钟对 29.5 分钟）是作者用合成负载自测的，单一来源，没拿来做判断。
 - 仓库的 README 和 SETUP.md 写着让编程助手「读 SETUP.md 帮我装好」，只读了，没照做。
 
-### P2 自动摆放让 KiCad 多报了丝印警告（M2，2026-11-08 记下，等你定）
+### P2 自动摆放让 KiCad 多报了丝印警告（已修，D40）
 
-- 现象（`runs/m2-placement-20261108-153216/`）：11 个样例里，rows 的 `silk_overlap`（丝印重叠）警告是 0 条，
-  auto 是 19 条，分布在 8 个样例上（uno_like_board 7、overcurrent_cutoff 4、attiny85_blink 2、ne555_astable 2，
-  其余 4 个样例各 1），uno_like_board 另有 1 条 `silk_over_copper`。`silk_edge_clearance` 在 rows 和 auto 里一样多，
-  与摆放无关。这些都是警告，DRC 错误数仍是 0 / 0，所以按任务书的验收标准不算变差。
-- 原因（推断，没有逐条核对）：摆放只看 courtyard 不重叠，位号文字（丝印）会伸出 courtyard，
-  被紧挨着的元件的丝印线压住。
-- 现在的做法：不处理，如实列出。
-- 可选的做法：① 把位号文字的外包框也算进每个元件的占位（pcbnew 能量到；元件间距变大，HPWL 会差一点，板子小时可能放不下）；
-  ② 加大 `placement.min_gap_mm`（只改配置；要多大没测过）；③ 摆完后只挪位号文字、不动元件（要新增一个 `kicad_side/` 脚本）；
-  ④ 维持现状，丝印警告留给出板前人工看。
+- 现象（`runs/m2-placement-20261108-153216/`）：摆放只看 courtyard 不重叠时，11 个样例里 rows 的 `silk_overlap`
+  警告是 0 条，auto 是 19 条（8 个样例）；原因是位号文字（丝印）伸出 courtyard，压到邻居的丝印。
+- 修了：位号文字的外包框也算进元件的占位，见 D40。修后 11 个样例的 `silk_overlap` 全是 0；
+  剩下的 DRC 警告 ldo_3v3、overcurrent_cutoff、uno_like_board 各 2 条，rows 里也有同样的 2 条（板边丝印，与摆放无关）。
 
 ### P3 li4s_protect 的对比（等你提供文件）
 
@@ -491,6 +485,19 @@
   ③ 只改 `config.yaml` 不够：铜厚 2 oz、温升放宽到 30 °C 也要 1.85 mm，3 oz 加 30 °C 要 1.23 mm，都超过板上的线宽；
   ④ 大电流改用铺铜——但 G3 现在只量走线（`segment`），不量铺铜（`zone`），纯靠铺铜的网络会记进 `width_unchecked`，
   不会被查，这是现在的限制。你定。
+
+### D40 位号文字的框算进元件占位，避免丝印叠字
+
+- 选了：`kicad_side/footprint_geometry.py` 在四个朝向下各量一次丝印位号文字的外包框（pcbnew 的 `ViewBBox`，
+  和 KiCad 画出来的一致）；摆放时每个元件占的地方 = courtyard 和位号框的外包框（`Shape.footprint()`）。
+  重叠、出区域、板边连接器贴边都按这个更大的框算；HPWL 仍按焊盘中心算。隐藏的位号不算。
+- 效果（`runs/m2-placement-20261108-173829/`，默认参数，种子 1）：`silk_overlap` 警告 19 条 → 0 条。
+  代价：HPWL 比没算位号时长一些（led 16.5 → 27.4，uno_like_board 767 → 825，attiny85 96 → 103）；
+  相对按行排仍是短的：-12 % 到 -50 %；布线后走线总长也短（-10 % 到 -53 %，如 lm358_amp 151.3 → 136.5 mm、
+  attiny85 215.7 → 101.0 mm）；未布通和 DRC 错误仍是 0 / 0。
+  旧的"500 步够用"的测试参数不够了（ldo_3v3 比按行排还长 0.1 mm），测试改用默认的 1500 步。
+- 其他选项：加大 `min_gap_mm`（粗，所有元件一起变松）；摆完只挪文字（要新脚本）；不处理。
+- 撤回：`problem.py` 里把 `fp.shapes[angle].footprint()` 改回 `.courtyard`。
 
 ### D39 峰值电压随步长飘：根因是误差控制太松、峰值从来没复核过（Linux CI 第一次跑发现，已从根上改）
 

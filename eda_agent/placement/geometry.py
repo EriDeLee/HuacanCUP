@@ -23,6 +23,16 @@ class Shape:
     courtyard: Rect
     # 焊盘编号 → 这个编号的所有焊盘中心（同号的可能有好几个）
     pads: dict[str, list[tuple[float, float]]]
+    # 丝印上位号文字的外包框；没有（隐藏、旧文件）是 None
+    ref_text: Rect | None = None
+
+    def footprint(self) -> Rect:
+        """摆放时占的地方：courtyard 和位号文字的外包框合起来。
+        文字压到邻居的丝印，KiCad 会报 silk_overlap（review-queue P2）。"""
+        if self.ref_text is None:
+            return self.courtyard
+        a, b = self.courtyard, self.ref_text
+        return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
 
 
 @dataclass(frozen=True)
@@ -71,6 +81,7 @@ def parse_geometry(data: dict[str, Any]) -> BoardGeom:
         shapes = {
             int(angle): Shape(
                 courtyard=tuple(raw["courtyard"]),
+                ref_text=tuple(raw["ref_text"]) if raw.get("ref_text") else None,
                 pads={
                     number: [(p[0], p[1]) for p in centers]
                     for number, centers in raw["pads"].items()

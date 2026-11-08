@@ -109,7 +109,7 @@ def build_problem(design: Design, geom: BoardGeom, cfg: PlacementConfig) -> Prob
     for i, ref in enumerate(refs):
         fp = geom.footprints[ref]
         for k, angle in enumerate(ANGLES):
-            courtyard[i, k] = fp.shapes[angle].courtyard
+            courtyard[i, k] = fp.shapes[angle].footprint()
         init_pos[i] = (fp.x, fp.y)
         init_rot[i] = _rot_index(fp.rot)
         locked.append(ref in sides)

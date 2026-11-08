@@ -4,8 +4,11 @@
 
 只依赖标准库和 pcbnew（ADR-0005）。几何是 pcbnew 自己算的，不是我们去解析 .kicad_mod：
 - 板框：Edge.Cuts 的外包框；
-- 每个封装：当前位置和角度；0、90、180、270 度四个朝向下，courtyard 的外包框和每个焊盘的中心，
-  都相对封装原点。把封装真的转过去再量，所以不用在这里猜 KiCad 的旋转正负号；
+- 每个封装：当前位置和角度；0、90、180、270 度四个朝向下，courtyard 的外包框和每个焊盘的中心、
+  以及位号文字的外包框，都相对封装原点。把封装真的转过去再量，所以不用在这里猜 KiCad 的旋转正负号；
+- 位号文字的外包框（丝印上印的那个放大了的位号）：写成每个朝向一个框。摆放时这个框和别的
+  元件的丝印都不许重叠——其实是 KiCad 在 DRC 里报的 silk_overlap（review-queue P2；pcbnew 转一下
+  量出来的就是真丝印的框，不是我们自己估的）；
 - 不在网表里的封装（安装孔，board_only）也列出来，摆放时当作不能动的障碍。
 courtyard 没有画的封装，用焊盘和图形的外包框外扩 0.25 mm 代替，并标出 courtyard_missing。
 """
@@ -41,8 +44,26 @@ def courtyard_box(fp):
     return box(shape.BBox())
 
 
+def shifted(rect, origin):
+    """板坐标的框 → 相对封装原点的 [x0, y0, x1, y1]（mm）。"""
+    return [
+        round(rect[0] - mm(origin.x), 4),
+        round(rect[1] - mm(origin.y), 4),
+        round(rect[2] - mm(origin.x), 4),
+        round(rect[3] - mm(origin.y), 4),
+    ]
+
+
+def ref_text_box(fp, origin):
+    """丝印上的位号文字的外包框（相对封装原点）。没有就返回 None。"""
+    ref = fp.Reference()
+    if ref is None or not ref.IsVisible():
+        return None
+    return shifted(box(ref.ViewBBox()), origin)
+
+
 def at_angle(fp, angle):
-    """封装转到 angle 度以后：courtyard 外包框、焊盘中心，都相对封装原点。"""
+    """封装转到 angle 度以后：courtyard 外包框、焊盘中心、位号文字的外包框，都相对封装原点。"""
     fp.SetOrientationDegrees(angle)
     origin = fp.GetPosition()
     crt = courtyard_box(fp)
@@ -56,19 +77,14 @@ def at_angle(fp, angle):
             crt[2] + FALLBACK_MARGIN_MM,
             crt[3] + FALLBACK_MARGIN_MM,
         ]
-    crt = [
-        round(crt[0] - mm(origin.x), 4),
-        round(crt[1] - mm(origin.y), 4),
-        round(crt[2] - mm(origin.x), 4),
-        round(crt[3] - mm(origin.y), 4),
-    ]
+    crt = shifted(crt, origin)
     pads = {}
     for pad in fp.Pads():
         pos = pad.GetPosition()
         pads.setdefault(pad.GetNumber(), []).append(
             [round(mm(pos.x) - mm(origin.x), 4), round(mm(pos.y) - mm(origin.y), 4)]
         )
-    return {"courtyard": crt, "pads": pads}, missing
+    return {"courtyard": crt, "pads": pads, "ref_text": ref_text_box(fp, origin)}, missing
 
 
 def main():

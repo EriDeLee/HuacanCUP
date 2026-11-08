@@ -437,6 +437,44 @@ def test_connectors_are_snapped_to_the_edge_line() -> None:
     assert pos[2, 0] == 120, "不是板边连接器的元件不动"
 
 
+def test_the_reference_text_box_is_part_of_the_space_a_part_takes() -> None:
+    """位号文字伸出 courtyard 时，占位是两个框合起来（文字压到邻居是 KiCad 的 silk_overlap）。"""
+    above = (-1.0, -4.0, 1.0, -1.0)  # courtyard 是 4 × 2（±2, ±1），文字在它上面
+    shape = Shape(courtyard=(-2.0, -1.0, 2.0, 1.0), pads={}, ref_text=above)
+    assert shape.footprint() == (-2.0, -4.0, 2.0, 1.0)
+    inside = Shape(courtyard=(-2.0, -1.0, 2.0, 1.0), pads={}, ref_text=(-0.5, -0.5, 0.5, 0.5))
+    assert inside.footprint() == inside.courtyard, "文字在 courtyard 里面，占位不变"
+    assert Shape(courtyard=(-2.0, -1.0, 2.0, 1.0), pads={}).footprint() == (-2.0, -1.0, 2.0, 1.0)
+
+
+def test_two_parts_whose_labels_would_collide_are_pushed_apart() -> None:
+    """courtyard 彼此隔得开，但 R1 的位号文字伸进 R2 的 courtyard：占位算了文字，就不许这样放。"""
+
+    def with_label(ref: str, x: float, y: float, rot: int = 0) -> FootprintGeom:
+        base = fp(ref, 4, 2, x=x, y=y)
+        shapes = {
+            a: Shape(
+                s.courtyard,
+                s.pads,
+                ref_text=(s.courtyard[0], s.courtyard[1] - 2.0, s.courtyard[2], s.courtyard[1]),
+            )
+            for a, s in base.shapes.items()
+        }
+        return FootprintGeom(ref, x, y, float(rot), False, False, shapes)
+
+    # R2 紧挨在 R1 正上方 1.5 mm：courtyard 之间留了 1.5 mm（够 1 mm 间隙），文字框却落在 R2 里面
+    geom = board(40, 30, with_label("R1", 120, 115), with_label("R2", 120, 111.5))
+    d = design_of(["R1", "R2"], {"A": ["R1.1", "R2.1"]})
+    p = problem_of(d, geom)
+    assert violations(p, p.init_pos, p.init_rot), "按文字算，这样放是重叠的"
+    result = auto_place(d, geom, CFG)
+    placed = BoardGeom(
+        geom.outline,
+        {r: with_label(r, x, y, a) for r, (x, y, a) in result.positions.items()},
+    )
+    assert check_board(d, placed, CFG) == []
+
+
 def test_energy_has_the_expected_parts() -> None:
     p, _, _ = stacked(3)
     e = energy(p, p.init_pos, p.init_rot)

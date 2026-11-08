@@ -64,9 +64,10 @@ li4s_protect 的手工摆放作为质量参照：用同一份 design.json，比�
 `board_build.py` 的 `place_parts` 没有改：它仍然负责第一遍按行排，自动摆放从这个结果出发。冒烟默认走 `auto`。
 
 `examples/` 的 11 个样例（`eval/m2_placement.py`，种子 1，fastroute 布线）：元件不重叠、不出板、板边连接器贴边，
-KiCad 自己的 DRC 也没有违规；HPWL 比按行排短 13 % 到 55 %，布线后的走线总长也短（uno_like_board 1724 → 1006 mm）；
+KiCad 自己的 DRC 也没有违规；HPWL 比按行排短 12 % 到 50 %，布线后的走线总长也短（uno_like_board 1724 → 1102 mm）；
 未布通网络数和 DRC 错误数两种摆放都是 0，所以「auto 不能比 rows 差」成立，没有变差的样例。
-有一处变差：KiCad 的丝印警告（`silk_overlap`）从 0 条涨到 19 条，是警告不是错误，记在 review-queue P2，等你定。
+位号文字（丝印）的框也算进元件占位（review-queue D40），KiCad 的 `silk_overlap` 警告是 0 条；
+没算时是 19 条，那一版的摆放线长更短但丝印互相压住。
 li4s_protect 没有比较（design.json 不在仓库里，P3）。
 
 ## 没定的（PLAN §16）
@@ -82,4 +83,4 @@ M2 里按任务书做了，选择和理由记在 review-queue：
 - IR 的 `board` 里摆放提示的字段名和格式（`schemas/design.schema.json` 要跟着改）：跟着 M3 的版图智能体一起做。
 - 换布线器、版图智能体调整后重布，这两层回退怎么嵌套（ADR-0017）。
 - 和 li4s_protect 的手工摆放比哪些指标、比到什么程度算过：等 design.json（P3）。
-- 要不要把位号文字（丝印）也算进元件的占位，避免丝印警告（P2）。
+- ~~要不要把位号文字（丝印）也算进元件的占位~~：算了（D40）。
