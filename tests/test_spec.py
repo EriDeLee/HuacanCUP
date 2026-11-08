@@ -134,7 +134,7 @@ def test_every_spec_file_in_the_repository_is_valid() -> None:
             *(REPO_ROOT / "tests" / "circuits").glob("*/spec.json"),
         ]
     )
-    assert len(paths) == 5
+    assert len(paths) == 6  # 五个手写电路 + 冒烟用的 LED
     validator = jsonschema.Draft202012Validator(spec_json_schema())
     for path in paths:
         validator.validate(json.loads(path.read_text(encoding="utf-8")))

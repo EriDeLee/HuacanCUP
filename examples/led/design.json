@@ -15,7 +15,8 @@
     {
       "ref": "D1", "block": "led", "value": "Red",
       "symbol": "Device:LED",
-      "footprint": "LED_THT:LED_D5.0mm"
+      "footprint": "LED_THT:LED_D5.0mm",
+      "spice": {"model": "LED_RED_GENERIC", "lib": "models/led_red_generic.lib", "pin_map": {"1": "K", "2": "A"}}
     }
   ],
   "nets": [

@@ -1,11 +1,14 @@
 """冒烟：手写 LED 电路走完整链路。AGENTS.md：任何改动后都必须保持通过。
 
 IR → 原理图（自写版面引擎，ADR-0013；--schematic skidl 换回 SKiDL 做对照）→ 版面检查 → ERC
-→ 网表（与 IR 逐网络核对）→ PCB（含网络类）→ 布线 → DRC（含原理图一致性）
+→ 网表（与 IR 逐网络核对）→ G1 静态检查 → G2 仿真 → G1 额定值检查（带仿真峰值）
+→ PCB（含网络类）→ 自动摆放 → 布线 → G3（DRC 含原理图一致性，加未布通、板尺寸、线宽）
 → Gerber、钻孔、坐标、STEP、GLB、渲染图、原理图 SVG。
 
+G1、G2 是前后相接的关：前一关没过就停在那里，不往下做板子（PLAN §4）。
+G2 要设计旁边有 spec.json 才有东西可查；没有就跳过，并在 summary.skipped 里写明，不是悄悄略过。
 主布线器 fastroute 和备用布线器 KiCadRoutingTools 都跑（ADR-0004），制造文件用主布线器的结果；
-主布线器的 DRC 不通过，冒烟就算失败。
+主布线器的 G3 不通过，冒烟就算失败。摆放方式取 config.yaml 的 placement.mode（默认 auto）。
 
     python tasks.py smoke
     python -m eda_agent.smoke --design examples/led/design.json --primary krt
@@ -16,12 +19,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
-import time
 import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -30,24 +32,23 @@ from eda_agent.config import REPO_ROOT, load_config
 from eda_agent.emit.kicad_project import emit_schematic, write_net_classes
 from eda_agent.emit.sch_layout import NetSpec
 from eda_agent.emit.sch_project import SchematicProject
-from eda_agent.gates.kicad_reports import drc_gate, erc_gate
+from eda_agent.flow import ROUTERS, copy_project, route_board
+from eda_agent.gates.drc import drc_checks, estimate_net_currents, pcb_net_names
+from eda_agent.gates.kicad_reports import erc_gate
 from eda_agent.gates.report import GateReport
 from eda_agent.gates.schematic_layout import layout_gate
-from eda_agent.gates.schematic_quality import layout_quality, netlist_gate
+from eda_agent.gates.schematic_quality import exported_nets, layout_quality, netlist_gate
+from eda_agent.gates.sim import SimEnv, sim_gate
+from eda_agent.gates.static import static_gate
 from eda_agent.ir.models import load_design
+from eda_agent.ir.spec import Spec, load_spec
+from eda_agent.placement.run import PlacementReport, place_board
 from eda_agent.tools.kicad_cli import KicadCli
 from eda_agent.tools.kicad_python import run_kicad_script
-from eda_agent.tools.routers import (
-    board_copper_edge_um,
-    board_min_track_um,
-    fastroute_route,
-    krt_route,
-)
 from eda_agent.tools.runner import ToolResult, run_tool
 from eda_agent.tools.sandbox import sandbox_env
 from eda_agent.trace import TraceWriter
 
-ROUTERS = ("fastroute", "krt")
 SCHEMATIC_MODES = ("engine", "skidl")
 
 
@@ -55,14 +56,18 @@ class Smoke:
     def __init__(self, design_path: Path, runs_dir: Path, schematic: str = "engine") -> None:
         self.design_path = design_path.resolve()
         self.design = load_design(self.design_path)
+        spec_path = self.design_path.with_name("spec.json")
+        self.spec: Spec | None = load_spec(spec_path) if spec_path.exists() else None
         self.schematic_mode = schematic
         self.project: SchematicProject | None = None
         self.name = self.design_path.parent.name
         self.run_id = f"smoke-{self.name}-{datetime.now():%Y%m%d-%H%M%S}"
         self.run_dir = runs_dir / self.run_id
         self.trace = TraceWriter(self.run_dir / "trace.jsonl", self.run_id)
-        self.tools = load_config().tools
+        self.cfg = load_config()
+        self.tools = self.cfg.tools
         self.logs = self.run_dir / "logs"
+        self.net_names: dict[str, str] = {}  # 设计里的网络名 → KiCad 网表 / PCB 里的网络名
         self.gates_dir = self.run_dir / "gates"
         self.gates_dir.mkdir(parents=True, exist_ok=True)
         self.kicad = KicadCli(self.tools, log_dir=self.logs, trace=self.trace)
@@ -179,7 +184,42 @@ class Smoke:
     def export_netlist(self, sch: Path) -> Path:
         netlist = sch.with_suffix(".net")
         self.kicad.sch_export_netlist(sch, netlist)
+        self.net_names = pcb_net_names(self.design, exported_nets(netlist))
         return netlist
+
+    def static(self, erc: GateReport, sim: GateReport | None = None) -> GateReport:
+        """G1。sim 给了就是第二轮：额定值检查加上 G2 量到的峰值电压、电流、功耗。"""
+        key = "static" if sim is None else "static_with_sim"
+        with self.step(key) as detail:
+            gate = static_gate(
+                self.design,
+                self.spec,
+                symbol_dirs=(self.tools.kicad_share / "symbols",),
+                footprint_dir=self.tools.kicad_share / "footprints",
+                derating=self.cfg.gates.derating,
+                sim=sim,
+                erc=erc,
+            )
+            self._record(key, gate)
+            detail.update(passed=gate.passed, **gate.counts)
+        return gate
+
+    def simulate(self, spec: Spec) -> GateReport:
+        """G2。文件放在 branches/0/sim/（ADR-0016，单路就是 0）。"""
+        sim_dir = self.run_dir / "branches" / "0" / "sim"
+        sim_dir.mkdir(parents=True, exist_ok=True)
+        with self.step("sim") as detail:
+            env = SimEnv(
+                tools=self.tools,
+                sim_dir=sim_dir,
+                run_dir=self.run_dir,
+                trace=self.trace,
+                branch=0,
+                log_dir=self.logs,
+            )
+            gate = self._record("sim", sim_gate(self.design, spec, env))
+            detail.update(passed=gate.passed, **gate.counts)
+        return gate
 
     def board(self, sch: Path, netlist: Path) -> Path:
         with self.step("pcb") as detail:
@@ -204,60 +244,49 @@ class Smoke:
             detail["net_classes"] = sorted(self.design.board.net_classes)
         return pcb
 
-    def _copy_project(self, pcb: Path, router: str) -> Path:
-        """布线在副本上做。多页原理图的每一页都要一起复制，DRC 的原理图一致性检查会读整个原理图。"""
-        work = self.run_dir / f"route-{router}"
-        work.mkdir(parents=True, exist_ok=True)
-        for suffix in (".kicad_pro", ".kicad_pcb"):
-            shutil.copy2(pcb.with_suffix(suffix), work / f"{self.name}{suffix}")
-        for sheet in pcb.parent.glob("*.kicad_sch"):
-            shutil.copy2(sheet, work / sheet.name)
-        return work / f"{self.name}.kicad_pcb"
+    def place(self, pcb: Path) -> tuple[Path, PlacementReport]:
+        """摆放在副本上做，两个布线器都从摆好的这块板出发。步骤记录由 place_board 自己写。"""
+        work = self.run_dir / "placement"
+        target = copy_project(pcb, work, self.name)
+        report = place_board(
+            self.tools,
+            target,
+            self.design,
+            self.cfg.placement,
+            work_dir=work,
+            log_dir=self.logs,
+            trace=self.trace,
+            branch=0,
+        )
+        (work / "placement.json").write_text(
+            json.dumps(asdict(report), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return target, report
 
     def route(self, pcb: Path, router: str) -> Path:
+        """布线在副本上做。多页原理图的每一页都要一起复制，DRC 的原理图一致性检查会读整个原理图。"""
         with self.step(f"route-{router}") as detail:
-            target = self._copy_project(pcb, router)
-            start = time.monotonic()
-            if router == "fastroute":
-                dsn, ses = target.with_suffix(".dsn"), target.with_suffix(".ses")
-                self._kicad_script(
-                    "specctra.py", ["export", "--pcb", target, "--dsn", dsn], target.parent
-                )
-                project = target.with_suffix(".kicad_pro")
-                fastroute_route(
-                    self.tools,
-                    dsn,
-                    ses,
-                    log_dir=self.logs,
-                    trace=self.trace,
-                    min_track_um=board_min_track_um(project),
-                    edge_clearance_um=board_copper_edge_um(project),
-                )
-                self._kicad_script(
-                    "specctra.py", ["import", "--pcb", target, "--ses", ses], target.parent
-                )
-            else:
-                routed = target.with_name(f"{self.name}_routed.kicad_pcb")
-                summary = target.with_name("krt_summary.json")
-                krt_route(
-                    self.tools,
-                    target,
-                    routed,
-                    summary_json=summary,
-                    log_dir=self.logs,
-                    trace=self.trace,
-                )
-                # DRC 的原理图一致性检查要求板、原理图、工程同名；工程文件保留布线前的原样。
-                routed.replace(target)
-                routed.with_suffix(".kicad_pro").unlink(missing_ok=True)
-            detail["seconds"] = round(time.monotonic() - start, 1)
+            target = copy_project(pcb, self.run_dir / f"route-{router}", self.name)
+            detail["seconds"] = round(
+                route_board(self.tools, target, router, log_dir=self.logs, trace=self.trace), 1
+            )
         return target
 
-    def drc(self, pcb: Path, router: str) -> GateReport:
+    def drc(self, pcb: Path, router: str, sim: GateReport | None) -> GateReport:
+        """G3：KiCad DRC，加未布通网络数、板尺寸、电源网络线宽。"""
         with self.step(f"drc-{router}") as detail:
             report = self.gates_dir / f"drc-{router}.json"
             self.kicad.pcb_drc(pcb, report, severity="all")
-            gate = self._record(f"drc-{router}", drc_gate(report))
+            gate = drc_checks(
+                drc_report=report,
+                pcb=pcb,
+                spec=self.spec,
+                net_names=self.net_names,
+                currents=estimate_net_currents(self.spec, sim),
+                copper_um=self.cfg.pcb.copper_thickness_um,
+                temp_rise_c=self.cfg.pcb.temp_rise_c,
+            )
+            self._record(f"drc-{router}", gate)
             detail.update(passed=gate.passed, **gate.counts)
         return gate
 
@@ -293,30 +322,68 @@ class Smoke:
             detail.update({k: str(p.relative_to(self.run_dir)) for k, p in outputs.items()})
         return detail
 
+    def gate_chain(
+        self, erc: GateReport, summary: dict[str, Any]
+    ) -> tuple[list[GateReport], GateReport | None]:
+        """G1 → G2 → G1（带仿真峰值）。前一关没过就停，summary.stopped_at 写停在哪一关。
+        返回（跑过的关，G2 的报告）；没有 spec.json 时 G2 跳过，summary.skipped 里写明。"""
+        reports = [self.static(erc)]
+        if not reports[-1].passed:
+            summary["stopped_at"] = "static"
+            return reports, None
+        if self.spec is None:
+            summary["skipped"] = {"sim": "设计旁边没有 spec.json，G2 没有验收标准可查"}
+            return reports, None
+        sim = self.simulate(self.spec)
+        reports.append(sim)
+        if not sim.passed:
+            summary["stopped_at"] = "sim"
+            return reports, sim
+        reports.append(self.static(erc, sim))
+        if not reports[-1].passed:
+            summary["stopped_at"] = "static_with_sim"
+        return reports, sim
+
     def run(self, routers: tuple[str, ...], primary: str) -> dict[str, Any]:
-        summary: dict[str, Any] = {"run_id": self.run_id, "design": str(self.design_path)}
+        summary: dict[str, Any] = {
+            "run_id": self.run_id,
+            "design": str(self.design_path),
+            "spec": None if self.spec is None else str(self.design_path.with_name("spec.json")),
+        }
         routed: dict[str, Path] = {}
+        placement_ok = False
+        primary_gate: GateReport | None = None
         try:
             sch = self.schematic()
             layout = self.layout(sch)
             erc = self.erc(sch)
             netlist = self.export_netlist(sch)
             equivalence = self.netlist_check(netlist)
-            pcb = self.board(sch, netlist)
-            for router in routers:
-                try:
-                    routed[router] = self.route(pcb, router)
-                    self.drc(routed[router], router)
-                except Exception as exc:
-                    summary.setdefault("router_errors", {})[router] = str(exc)[-1500:]
-            primary_gate = self.gates.get(f"drc-{primary}")
-            if primary_gate is not None and primary_gate.passed:
-                summary["exports"] = self.export(routed[primary], sch)
+            chain, sim = self.gate_chain(erc, summary)
+            checks = [layout, erc, equivalence, *chain]
+            if "stopped_at" not in summary:
+                pcb = self.board(sch, netlist)
+                placed, placement = self.place(pcb)
+                summary["placement"] = {
+                    k: v
+                    for k, v in asdict(placement).items()
+                    if k in ("mode", "seed", "method", "hpwl_mm", "hpwl_rows_mm", "violations")
+                }
+                # rows 是原来按行排的板子，不由摆放这一步担保合法；它的问题 G3 的 DRC 会报
+                placement_ok = placement.ok or placement.mode == "rows"
+                for router in routers:
+                    try:
+                        routed[router] = self.route(placed, router)
+                        self.drc(routed[router], router, sim)
+                    except Exception as exc:
+                        summary.setdefault("router_errors", {})[router] = str(exc)[-1500:]
+                primary_gate = self.gates.get(f"drc-{primary}")
+                if primary_gate is not None and primary_gate.passed:
+                    summary["exports"] = self.export(routed[primary], sch)
             summary["passed"] = (
                 bool(
-                    layout.passed
-                    and erc.passed
-                    and equivalence.passed
+                    all(g.passed for g in checks)
+                    and placement_ok
                     and primary_gate is not None
                     and primary_gate.passed
                 )

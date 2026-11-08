@@ -117,7 +117,7 @@ jobs:
       - name: 工具测试 (需要 KiCad)
         run: xvfb-run -a venv/bin/python tasks.py test-tools 2>&1 | tee ci-logs/8-test-tools.log
 
-      - name: 冒烟 (LED 电路走完整链路)
+      - name: 冒烟 (LED 电路：G1 → G2 → 摆放 → 布线 → G3 → 导出)
         run: xvfb-run -a venv/bin/python tasks.py smoke 2>&1 | tee ci-logs/9-smoke.log
 
       - name: 失败时把日志尾部写成注释 (Actions 日志要登录才能看，注释不用)
@@ -134,6 +134,8 @@ jobs:
             runs/smoke-*/summary.json
             runs/smoke-*/trace.jsonl
             runs/smoke-*/gates/
+            runs/smoke-*/branches/
+            runs/smoke-*/placement/*.json
             runs/smoke-*/logs/
             runs/smoke-*/final/renders/
             runs/smoke-*/kicad/*.kicad_sch

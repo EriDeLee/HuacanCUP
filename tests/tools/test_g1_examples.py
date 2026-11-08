@@ -74,7 +74,7 @@ def test_every_spec_maps_onto_its_design_and_passes_g1(path) -> None:  # type: i
     assert report.passed, [f.message for f in report.findings]
 
 
-def test_the_five_hand_circuits_all_have_a_spec() -> None:
+def test_the_five_hand_circuits_and_the_smoke_circuit_all_have_a_spec() -> None:
     names = {p.parent.name for p in SPEC_FOLDERS}
     assert names == {
         "voltage_divider",
@@ -82,4 +82,5 @@ def test_the_five_hand_circuits_all_have_a_spec() -> None:
         "ne555_astable",
         "lm358_amp",
         "overcurrent_cutoff",
+        "led",  # 冒烟用的电路：有 spec，G2、G3 在冒烟里才有东西可查
     }

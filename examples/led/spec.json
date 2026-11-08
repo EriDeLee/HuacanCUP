@@ -1,0 +1,21 @@
+{
+  "id": "spec-led",
+  "summary": "5 V 经 330 Ω 点亮红色 LED，电流约 9.5 mA（冒烟用，让 G1、G2、G3 在这块板上都有东西可查）",
+  "interfaces": [
+    {"name": "VIN", "kind": "power_in", "v_nom": 5.0, "i_max": 0.02, "notes": "J1 的 1 脚，5 V 板外供电"}
+  ],
+  "acceptance": [
+    {
+      "id": "A1",
+      "text": "LED 电流约 9.5 mA（容差 ±10 %）",
+      "testbench": {"type": "op"},
+      "measure": {"kind": "value_at", "signal": "I(VIN)"},
+      "pass": {"op": "between", "low": 0.00855, "high": 0.01045, "unit": "A"}
+    }
+  ],
+  "constraints": {"board_max_mm": [30, 20], "layers_max": 2, "assembly": "hand_solder"},
+  "assumptions": [
+    "手算：二极管卡 LED_RED_GENERIC（IS = 2.9e-18、N = 2、RS = 2 Ω）在 9.5 mA 时 Vf = 2 × 0.02585 × ln(0.0095 / 2.9e-18) + 0.0095 × 2 = 1.847 + 0.019 = 1.866 V；电流 = (5 − 1.866) / 330 = 9.50 mA",
+    "容差 ±10 %：Vf 对电流只是对数的关系，电阻按标称 330 Ω 算，板外 5 V 允许 ±5 %（±0.25 V → 约 ±0.8 mA），所以这个范围不会误判"
+  ]
+}
